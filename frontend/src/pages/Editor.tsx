@@ -110,12 +110,19 @@ export default function Editor({ onAuthError }: Props) {
     [onAuthError, flash],
   );
 
+  // Guardia anti-race: ogni load() prende un numero di sequenza; se al ritorno
+  // delle fetch una load() più recente è già partita (es. cambio rapido di video
+  // con Precedente/Successivo), la risposta vecchia viene SCARTATA invece di
+  // sovrascrivere lo stato del video corrente.
+  const loadSeqRef = useRef(0);
   const load = useCallback(async () => {
+    const seq = ++loadSeqRef.current;
     setLoadError(null);
     try {
       const [v, segs, st] = await Promise.all([
         api.getVideo(id), api.getSubtitles(id), api.styles(),
       ]);
+      if (seq !== loadSeqRef.current) return; // superata da una load più recente
       setVideo(v);
       setSegments(segs);
       setPast([]);
@@ -137,6 +144,7 @@ export default function Editor({ onAuthError }: Props) {
       setAutoExport(v.auto_export);
       setDirty(false);
     } catch (e) {
+      if (seq !== loadSeqRef.current) return; // errore di una richiesta superata: ignora
       if (!(e instanceof AuthError)) {
         setLoadError(`Impossibile caricare il video: ${String((e as Error).message ?? e)}`);
       }
@@ -765,7 +773,11 @@ export default function Editor({ onAuthError }: Props) {
 
   const working = video?.status === "transcribing" || video?.status === "exporting" || busy !== "";
 
-  // scorciatoie tastiera (ignorate quando si scrive in un campo)
+  // scorciatoie tastiera (ignorate quando si scrive in un campo).
+  // Il listener window si registra UNA sola volta (effetto con [] più sotto);
+  // qui si tiene solo aggiornato un ref all'ultima closure, così durante il
+  // playback (setCurrent ~4Hz) non si fa add/removeEventListener ad ogni render.
+  const shortcutRef = useRef<((e: KeyboardEvent) => void) | null>(null);
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       const el = e.target as HTMLElement | null;
@@ -811,13 +823,19 @@ export default function Editor({ onAuthError }: Props) {
           break;
       }
     }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    shortcutRef.current = onKey;
   });
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => shortcutRef.current?.(e);
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, []);
 
   // undo/redo dei segmenti: Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y.
   // Mentre si digita in un campo (input/textarea) lasciamo l'undo NATIVO del testo:
   // lo stack locale agisce solo fuori dai campi (o dai bottoni della barra sottotitoli).
+  // Stesso pattern latest-ref dell'effetto sopra: listener registrato una volta.
+  const undoRedoRef = useRef<((e: KeyboardEvent) => void) | null>(null);
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (!(e.ctrlKey || e.metaKey)) return;
@@ -831,9 +849,13 @@ export default function Editor({ onAuthError }: Props) {
       if (redoCombo) { if (futureSegs.length) { e.preventDefault(); redo(); } }
       else if (past.length) { e.preventDefault(); undo(); }
     }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    undoRedoRef.current = onKey;
   });
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => undoRedoRef.current?.(e);
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, []);
 
   if (!video) {
     return (

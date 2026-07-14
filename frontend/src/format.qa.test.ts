@@ -103,10 +103,9 @@ describe("fmtDate", () => {
     expect(fmtDate("2026-07-09T15:30:00")).toMatch(/\d{2}\/\d{2}.*\d{2}:\d{2}/);
   });
 
-  // CHARACTERIZATION QA: nessuna guardia sull'input — una stringa non parsabile
-  // produce "Invalid Date Invalid Date" invece di un fallback. Comportamento
-  // attuale documentato, la correttezza è una decisione di design.
-  it("characterization: input invalido produce testo 'Invalid'", () => {
-    expect(fmtDate("non-una-data")).toContain("Invalid");
+  // §9 (decisione presa): una stringa non parsabile produce il fallback "-"
+  // invece di "Invalid Date", coerente con fmtTime.
+  it("§9: input invalido produce fallback '-'", () => {
+    expect(fmtDate("non-una-data")).toBe("-");
   });
 });

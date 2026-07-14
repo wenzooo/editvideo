@@ -52,8 +52,11 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="EditVideo", version=APP_VERSION, lifespan=lifespan)
 
-# Compressione gzip delle risposte grandi (es. lista video con sottotitoli)
-app.add_middleware(GZipMiddleware, minimum_size=1024)
+# Compressione gzip delle risposte grandi (es. lista video con sottotitoli).
+# compresslevel=6 (invece del default 9): rapporto quasi identico sul JSON ma
+# molta meno CPU su 2 vCPU. I media sono esclusi a monte (Content-Encoding
+# "identity" in videos._serve_media): niente ricompressione di mp4/jpeg.
+app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)
 
 
 @app.middleware("http")

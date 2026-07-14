@@ -1,18 +1,20 @@
 """QA API test: PUT/GET /api/videos/{id}/subtitles (routers/subtitles.py).
 
-Logica chiave MAI testata prima: la PUT preserva i word-timestamp (karaoke)
-SOLO per i segmenti rientrati con (round(start,2), round(end,2), text)
-invariati; ogni segmento realmente modificato (testo o tempi oltre il round a
-2 decimali) perde le words. Tutto OFFLINE via TestClient, nessun ffmpeg.
+Logica chiave: la PUT preserva i word-timestamp (karaoke) SOLO per i segmenti
+rientrati con (round(start,3), round(end,3), text) invariati; ogni segmento
+realmente modificato (testo o tempi oltre il round a 3 decimali) perde le words.
+La chiave a 3 decimali (§9) allinea la precisione a quella dello storage ed
+elimina le collisioni che col round a 2 facevano perdere il karaoke. Tutto
+OFFLINE via TestClient, nessun ffmpeg.
 
 Ambiente isolato configurato PRIMA di importare l'app (stesso preambolo dei
 moduli esistenti: setdefault non sovrascrive nulla di gia' impostato, quindi
 in suite completa vincono le env del primo modulo importato — per questo a
 runtime si usano SEMPRE i percorsi di get_settings(), mai _TMP).
 
-Tutti i test sono VERDI: i punti sottili (collisione delle chiavi dopo il
-round a 2 decimali, filtro silenzioso dei segmenti degeneri) sono documentati
-come CHARACTERIZATION del comportamento reale, non asserzioni di correttezza.
+Include i test delle decisioni §9: chiave a 3 decimali senza collisione, e
+guardia 422 sulla PUT di soli segmenti degeneri (niente svuotamento silenzioso;
+la lista vuota resta un clear valido).
 """
 import os
 import tempfile
@@ -167,13 +169,13 @@ def test_put_shifted_times_beyond_round2_drops_words():
     assert body[1]["words"] == W2
 
 
-def test_put_shift_within_round2_keeps_words():
-    # controprova: uno shift SOTTO la tolleranza del round a 2 decimali
-    # (0.0 -> 0.001, round -> 0.0) mantiene la stessa chiave e conserva le words.
+def test_put_shift_within_round3_keeps_words():
+    # controprova: uno shift SOTTO la tolleranza del round a 3 decimali
+    # (0.0 -> 0.0001, round -> 0.0) mantiene la stessa chiave e conserva le words.
     vid = _seed_two_segments()
     headers = _auth()
     r = _put(vid, [
-        {"start": 0.001, "end": 1.5, "text": "ciao a tutti"},
+        {"start": 0.0001, "end": 1.5, "text": "ciao a tutti"},
         {"start": 2.0, "end": 3.0, "text": "secondo segmento"},
     ], headers)
     assert r.status_code == 200
@@ -181,16 +183,14 @@ def test_put_shift_within_round2_keeps_words():
 
 
 # --------------------------------------------------------------------------- #
-# 4. CHARACTERIZATION: collisione della chiave dopo round(...,2)
+# 4. §9 (FIX): con la chiave a round(...,3) NON c'e' piu' collisione
 # --------------------------------------------------------------------------- #
-def test_put_round2_key_collision_last_segment_wins_characterization():
-    # QA CHARACTERIZATION (subtitles.py:38-41): la mappa `existing` e' indicizzata
-    # per (round(start,2), round(end,2)). Due segmenti REALI distinti a DB —
-    # start 1.001 e 1.004, end 2.0 e 2.004, stesso testo — collidono sulla stessa
-    # chiave (1.0, 2.0): nella dict-comprehension l'ULTIMO (idx piu' alto) vince
-    # e sovrascrive il primo. Alla PUT identica, ENTRAMBI i segmenti pescano la
-    # stessa entry: il primo PERDE le proprie words WA ed EREDITA le WB del
-    # secondo. Comportamento reale documentato, non necessariamente corretto.
+def test_put_round3_key_no_collision_each_keeps_own_words():
+    # §9 (decisione presa): la mappa `existing` usa ora (round(start,3),
+    # round(end,3)), la STESSA precisione con cui i segmenti sono salvati. Due
+    # segmenti distinti a 3 decimali — start 1.001 e 1.004, end 2.0 e 2.004 —
+    # NON collidono piu': rientrando identici, ciascuno riottiene le PROPRIE
+    # words invece di ereditare quelle del collidente (com'era col round a 2).
     WA = [[1.0, 1.5, "prima"], [1.5, 2.0, "voce"]]
     WB = [[1.0, 1.5, "seconda"], [1.5, 2.0, "voce"]]
     vid = _make_video(segments=[
@@ -205,10 +205,9 @@ def test_put_round2_key_collision_last_segment_wins_characterization():
     assert r.status_code == 200
     body = r.json()
     assert len(body) == 2
-    # il primo segmento NON riottiene le sue WA: eredita le WB del collidente
-    assert body[0]["words"] == WB
+    # niente collisione: ciascun segmento conserva le proprie words
+    assert body[0]["words"] == WA
     assert body[1]["words"] == WB
-    assert all(s["words"] != WA for s in body)  # WA sono andate perse
 
 
 # --------------------------------------------------------------------------- #
@@ -253,10 +252,10 @@ def test_put_segment_end_before_start_silently_dropped_characterization():
     assert [s["text"] for s in body] == ["valido"]  # il degenere sparisce senza errore
 
 
-def test_put_blank_text_segment_silently_dropped_characterization():
-    # QA CHARACTERIZATION: testo vuoto/solo spazi non produce errore: il router
-    # filtra `s.text.strip()` (subtitles.py:44) e il segmento sparisce dalla
-    # risposta e dal DB. Una PUT di soli segmenti vuoti svuota i sottotitoli.
+def test_put_blank_text_segment_silently_dropped():
+    # Un segmento a testo vuoto/solo spazi viene filtrato in silenzio
+    # (subtitles.py, `s.text.strip()`) FINCHE' resta almeno un segmento valido:
+    # qui il secondo sopravvive, quindi 200 senza il degenere.
     vid = _seed_two_segments()
     headers = _auth()
     r = _put(vid, [
@@ -268,6 +267,34 @@ def test_put_blank_text_segment_silently_dropped_characterization():
     assert [s["text"] for s in body] == ["secondo segmento"]
     assert body[0]["words"] == W2      # invariato: conserva il karaoke
     assert body[0]["idx"] == 0         # re-indicizzato da zero dopo il filtro
+
+
+def test_put_all_degenerate_segments_rejected_422():
+    # §9 (decisione presa): se il client invia segmenti ma sono TUTTI degeneri
+    # (testo vuoto o end<=start), la PUT e' rifiutata con 422 e i sottotitoli
+    # esistenti restano INTATTI (niente svuotamento silenzioso da un bug/edit).
+    vid = _seed_two_segments()
+    headers = _auth()
+    r = _put(vid, [
+        {"start": 5.0, "end": 3.0, "text": "inverso"},   # end<start: degenere
+        {"start": 0.0, "end": 1.5, "text": "   "},        # testo vuoto: degenere
+    ], headers)
+    assert r.status_code == 422
+    # i sottotitoli originali NON sono stati toccati
+    g = _get(vid, headers)
+    assert [s["text"] for s in g.json()] == ["ciao a tutti", "secondo segmento"]
+    assert [s["words"] for s in g.json()] == [W1, W2]
+
+
+def test_put_empty_list_clears_subtitles():
+    # controprova: una lista VUOTA e' un clear legittimo (200, sottotitoli
+    # svuotati) — la guardia scatta solo su segmenti inviati ma tutti degeneri.
+    vid = _seed_two_segments()
+    headers = _auth()
+    r = _put(vid, [], headers)
+    assert r.status_code == 200
+    assert r.json() == []
+    assert _get(vid, headers).json() == []
 
 
 # --------------------------------------------------------------------------- #

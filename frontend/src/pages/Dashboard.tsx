@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, ApiError, AuthError, downloadUrl, thumbUrl } from "../api";
 import JobsBar from "../components/JobsBar";
@@ -38,6 +38,41 @@ const SORT_META: Record<SortKey, { label: string; firstDir: SortDir }> = {
   status: { label: "Stato", firstDir: "asc" },
   created: { label: "Caricato", firstDir: "desc" },
 };
+
+/**
+ * Esegue `fn` subito e poi ogni `ms`, ma SOLO mentre la tab/iframe è visibile.
+ * Su `document.hidden` il timer si ferma (niente polling a vuoto in background
+ * sul backend HF free); tornando visibile riparte con un refresh immediato.
+ * `fn` è tenuto in un ref, quindi l'intervallo si ricrea solo quando cambia `ms`
+ * (es. il poll adattivo 2.5s/10s), non ad ogni render.
+ */
+function useVisiblePolling(fn: () => void, ms: number) {
+  const fnRef = useRef(fn);
+  fnRef.current = fn;
+  useEffect(() => {
+    let timer: number | null = null;
+    const tick = () => fnRef.current();
+    const start = () => {
+      if (timer == null) {
+        tick();
+        timer = window.setInterval(tick, ms);
+      }
+    };
+    const stop = () => {
+      if (timer != null) {
+        window.clearInterval(timer);
+        timer = null;
+      }
+    };
+    const onVisibility = () => (document.hidden ? stop() : start());
+    if (!document.hidden) start();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      stop();
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [ms]);
+}
 
 export default function Dashboard({ onAuthError }: { onAuthError: () => void }) {
   const toast = useToast();
@@ -92,20 +127,15 @@ export default function Dashboard({ onAuthError }: { onAuthError: () => void }) 
   );
 
   const jobsActive = jobs.length > 0;
+  const busy = jobsActive || uploading;
 
-  // jobs: poll leggero e costante (2.5s) per accorgersi subito dei lavori nuovi
-  useEffect(() => {
-    refreshJobs();
-    const t = window.setInterval(refreshJobs, 2500);
-    return () => window.clearInterval(t);
-  }, [refreshJobs]);
+  // jobs: poll per accorgersi dei lavori nuovi — 2.5s quando c'è attività, 8s a
+  // riposo (backoff). Gated sulla visibilità: fermo in background.
+  useVisiblePolling(refreshJobs, busy ? 2500 : 8000);
 
-  // lista video: poll adattivo — 2.5s quando c'è attività (job o upload), 10s a riposo
-  useEffect(() => {
-    refreshVideos();
-    const t = window.setInterval(refreshVideos, jobsActive || uploading ? 2500 : 10000);
-    return () => window.clearInterval(t);
-  }, [refreshVideos, jobsActive, uploading]);
+  // lista video: poll adattivo — 2.5s quando c'è attività (job o upload), 10s a
+  // riposo. Anch'esso gated sulla visibilità.
+  useVisiblePolling(refreshVideos, busy ? 2500 : 10000);
 
   const loadTemplates = useCallback(() => {
     api.templates().then(setTemplates).catch(() => undefined);

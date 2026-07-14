@@ -258,6 +258,9 @@ def run_export(job_id: str, video_id: str) -> None:
         sub_scale = video.sub_scale if video.sub_scale is not None else 1.0
         src, vid = video.stored_path, video.id
         intro_zoom, fps = bool(video.intro_zoom), float(video.fps or 30)
+        # has_audio è già su questo oggetto: catturarlo qui evita una seconda
+        # SELECT/sessione più avanti (il valore non cambia durante l'export).
+        has_audio = bool(video.has_audio)
 
     if not src or not Path(src).exists():
         raise RuntimeError(f"File sorgente mancante: {src or '(percorso vuoto)'}")
@@ -273,11 +276,6 @@ def run_export(job_id: str, video_id: str) -> None:
     ass_path: Path | None = None
     remapped = remap_segments_detailed_plan(segments, plan)
     dst = settings.exports_dir / f"{vid}.mp4"
-    with SessionLocal() as db:
-        v2 = db.get(Video, video_id)
-        if not v2:
-            raise RuntimeError("Video eliminato durante l'export")
-        has_audio = v2.has_audio
     try:
         # la scrittura dell'.ass sta dentro il try: se fallisce a metà (es. disco
         # pieno) il finally rimuove comunque il file troncato, come per l'MP4.

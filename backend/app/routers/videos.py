@@ -130,6 +130,13 @@ def list_videos(status: str | None = None, db: Session = Depends(get_db)):
     # select(Video) trascinerebbe TUTTI i segmenti di TUTTI i video in una query
     # extra. Qui il conteggio arriva dall'aggregata sotto e video_to_out non tocca
     # v.segments: sopprimiamo il caricamento (ORDER BY created_at usa l'indice).
+    # ?status= validato contro l'enum (§9): un valore inesistente NON deve
+    # ritornare in silenzio una lista vuota (indistinguibile da "nessun video in
+    # quello stato"), ma segnalare l'errore con gli stati ammessi.
+    if status and status not in VideoStatus.ALL:
+        raise HTTPException(
+            422,
+            f"status non valido: {status!r}. Ammessi: {', '.join(VideoStatus.ALL)}")
     q = select(Video).options(noload(Video.segments)).order_by(Video.created_at.desc())
     if status:
         q = q.where(Video.status == status)
@@ -328,6 +335,12 @@ def _serve_media(request: Request, file_path: str, media_type: str, *,
     Se l'If-None-Match del client combacia con l'ETag corrente ritorna 304
     (senza corpo) con gli stessi header; altrimenti la FileResponse completa."""
     headers = _media_cache_headers(file_path, immutable=immutable)
+    # I media (mp4/jpeg) sono GIA' compressi: dichiarare "identity" fa sì che la
+    # GZipMiddleware li lasci passare intatti invece di ri-comprimerli (≈0% di
+    # guadagno, 100% di CPU sprecata su 2 vCPU) e preserva lo streaming Range del
+    # tag <video> (il seek dell'anteprima editor). Starlette salta la compressione
+    # quando il Content-Encoding è già impostato.
+    headers["Content-Encoding"] = "identity"
     inm = request.headers.get("if-none-match")
     if inm and _etag_matches(inm, headers["ETag"]):
         return Response(status_code=304, headers=headers)

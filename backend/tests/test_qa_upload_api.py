@@ -229,16 +229,15 @@ def test_list_videos_filters_by_status():
     assert all(v["status"] == "uploaded" for v in body)
 
 
-def test_list_videos_unknown_status_characterization():
-    # CHARACTERIZATION: `status` e' una stringa libera (nessun Literal/enum), un
-    # valore inesistente non e' rifiutato ma semplicemente non matcha nulla:
-    # oggi risponde 200 con lista vuota (non 422).
+def test_list_videos_unknown_status_rejected():
+    # §9 (decisione presa): uno status inesistente NON ritorna in silenzio una
+    # lista vuota (indistinguibile da "nessun video in quello stato") ma 422 con
+    # l'elenco degli stati ammessi.
     _make_video(original_name="qualcosa.mp4", status=VideoStatus.UPLOADED)
     r = client.get("/api/videos", params={"status": "stato-che-non-esiste"},
                    headers=_auth())
-    assert r.status_code in (200, 422)
-    if r.status_code == 200:
-        assert r.json() == []
+    assert r.status_code == 422
+    assert "uploaded" in r.json()["detail"]
 
 
 def test_get_video_random_id_404():

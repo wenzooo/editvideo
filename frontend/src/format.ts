@@ -26,6 +26,8 @@ export function parseTime(v: string): number | null {
 }
 
 export function fmtSize(bytes: number): string {
+  // guardia (§9): byte non finiti o negativi non hanno senso -> "-"
+  if (!isFinite(bytes) || bytes < 0) return "-";
   if (bytes >= 1e9) return (bytes / 1e9).toFixed(2) + " GB";
   if (bytes >= 1e6) return (bytes / 1e6).toFixed(1) + " MB";
   return Math.round(bytes / 1e3) + " KB";
@@ -33,6 +35,8 @@ export function fmtSize(bytes: number): string {
 
 export function fmtDate(iso: string): string {
   const d = new Date(iso);
+  // guardia (§9): stringa non parsabile -> "-" invece di "Invalid Date"
+  if (isNaN(d.getTime())) return "-";
   return d.toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit" }) +
     " " + d.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
 }

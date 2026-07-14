@@ -24,21 +24,29 @@ def _count_by_status(db: Session, model) -> dict[str, int]:
     return {status: int(n) for status, n in rows}
 
 
-def _avg_done_job_seconds(db: Session) -> float | None:
-    """Durata media (s) dei job completati con successo.
+# Finestra massima di job considerati per la media: limita lo scan agli ultimi
+# N completati invece di caricare TUTTA la tabella `jobs` (che con la retention a
+# 30 giorni può contare migliaia di righe). Bounded + rappresentativo: la media
+# "recente" è anche più utile di quella all-time per un tempo tipico di lavoro.
+_AVG_WINDOW = 500
 
-    Considera solo i job ``done`` con ``started_at``/``finished_at`` valorizzati.
-    La differenza tra timestamp e' calcolata in Python per restare agnostici
-    rispetto al backend (SQLite e Postgres divergono nell'aritmetica sulle date);
-    su scala single-node il numero di job e' contenuto, quindi caricare le coppie
-    e' accettabile (KISS). Ritorna ``None`` se non c'e' ancora alcun job
+
+def _avg_done_job_seconds(db: Session) -> float | None:
+    """Durata media (s) degli ultimi job completati con successo.
+
+    Considera solo i job ``done`` con ``started_at``/``finished_at`` valorizzati,
+    limitandosi ai più recenti ``_AVG_WINDOW`` (bounded: l'health profondo e
+    /api/metrics possono essere interrogati di frequente da un monitor, quindi lo
+    scan non deve crescere con la tabella). La differenza tra timestamp è calcolata
+    in Python per restare agnostici rispetto al backend (SQLite e Postgres divergono
+    nell'aritmetica sulle date). Ritorna ``None`` se non c'è ancora alcun job
     completato misurabile."""
     rows = db.execute(
         select(Job.started_at, Job.finished_at).where(
             Job.status == JobStatus.DONE,
             Job.started_at.is_not(None),
             Job.finished_at.is_not(None),
-        )
+        ).order_by(Job.finished_at.desc()).limit(_AVG_WINDOW)
     ).all()
     durate = [
         (finished - started).total_seconds()
