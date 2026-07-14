@@ -1,0 +1,268 @@
+/* ============================================================
+   SISTEMA DI FEEDBACK (Iterazione 4) — stili ctOS/HUD
+   ------------------------------------------------------------
+   Un solo foglio per l'intero "sistema di feedback":
+     1) Toast (stack, card, varianti, animazioni)
+     2) Skeleton (shimmer di caricamento)
+     3) Empty state (rifinitura di .empty con icona)
+     4) Error state (box con "Riprova")
+
+   Importato dentro i componenti che lo usano (Toast.tsx, Skeleton.tsx)
+   così non serve toccare main.tsx. Si animano SOLO transform / opacity /
+   background-position (compositor-friendly). Tutte le override per
+   prefers-reduced-motion sono raccolte IN FONDO, come negli altri file.
+   ============================================================ */
+
+
+/* ============================================================
+   1. TOAST
+   ============================================================ */
+
+.toast-stack {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 2000;                 /* sopra topbar(10) e menu popover(60) */
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-end;
+  width: max-content;
+  max-width: min(92vw, 380px);
+  pointer-events: none;          /* i "vuoti" tra i toast non bloccano i click */
+}
+
+.toast {
+  pointer-events: auto;
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  min-width: 240px;
+  padding: 11px 12px 12px 13px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--accent);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.4;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .5), 0 0 0 1px rgba(0, 0, 0, .2);
+  overflow: hidden;
+  animation: toast-in .22s cubic-bezier(.2, .7, .2, 1) both;
+}
+.toast.leaving { animation: toast-out .2s ease forwards; }
+
+/* varianti: barra laterale + colore icona */
+.toast-success { border-left-color: var(--green); }
+.toast-error   { border-left-color: var(--red); }
+.toast-info    { border-left-color: var(--accent); }
+
+.toast-ico {
+  flex: 0 0 auto;
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 13px;
+  line-height: 1.35;
+  margin-top: 1px;
+}
+.toast-success .toast-ico { color: var(--green); text-shadow: 0 0 10px rgba(47, 230, 160, .4); }
+.toast-error   .toast-ico { color: var(--red);   text-shadow: 0 0 10px rgba(255, 92, 108, .4); }
+.toast-info    .toast-ico { color: var(--accent); text-shadow: 0 0 10px rgba(0, 229, 199, .4); }
+
+.toast-msg {
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+}
+
+.toast-x {
+  flex: 0 0 auto;
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 17px;
+  line-height: 1;
+  padding: 0 2px;
+  margin: -1px -2px 0 2px;
+  transition: color .15s;
+}
+.toast-x:hover { color: var(--text); }
+.toast-x:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+
+/* barra di countdown (solo transform: scaleX) */
+.toast-timer {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  width: 100%;
+  transform-origin: left center;
+  opacity: .5;
+  animation-name: toast-timer;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+.toast-success .toast-timer { background: var(--green); }
+.toast-error   .toast-timer { background: var(--red); }
+.toast-info    .toast-timer { background: var(--accent); }
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(10px) scale(.98); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes toast-out {
+  from { opacity: 1; transform: none; }
+  to   { opacity: 0; transform: translateY(8px) scale(.98); }
+}
+@keyframes toast-timer {
+  from { transform: scaleX(1); }
+  to   { transform: scaleX(0); }
+}
+
+
+/* ============================================================
+   2. SKELETON
+   ------------------------------------------------------------
+   Blocco base con shimmer diagonale (muove solo background-position,
+   coerente con .progress di animations.css).
+   ============================================================ */
+
+.skel {
+  display: block;
+  position: relative;
+  overflow: hidden;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.skel::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(100deg, transparent 20%, rgba(255, 255, 255, .07) 50%, transparent 80%);
+  background-size: 220% 100%;
+  background-repeat: no-repeat;
+  background-position: -60% 0;
+  animation: skel-shimmer 1.4s linear infinite;
+}
+@keyframes skel-shimmer {
+  from { background-position: -60% 0; }
+  to   { background-position: 160% 0; }
+}
+
+/* lista dashboard: righe che approssimano la tabella video */
+.skel-rows { display: block; }
+.skel-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 11px 12px;
+  border-bottom: 1px solid #141c2a;
+}
+.skel-row .skel-thumb { flex: 0 0 44px; width: 44px; height: 78px; border-radius: 4px; }
+.skel-col { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.skel-row .skel-badge { flex: 0 0 auto; width: 74px; height: 20px; border-radius: 4px; }
+
+/* editor: due colonne come .editor-grid */
+.skel-editor {
+  display: grid;
+  grid-template-columns: minmax(340px, 460px) 1fr;
+  gap: 24px;
+}
+.skel-player {
+  width: min(100%, calc(62vh * 0.5625));  /* 9:16 */
+  aspect-ratio: 9 / 16;
+  max-height: 62vh;
+  margin: 0 auto;
+  border-radius: 8px;
+}
+.skel-controls {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.skel-subhead { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.skel-sub { height: 62px; border-radius: 6px; margin-bottom: 8px; }
+
+
+/* ============================================================
+   3. EMPTY STATE (rifinitura di .empty — icona + testo coerenti)
+   ============================================================ */
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.empty-ico {
+  font-size: 30px;
+  line-height: 1;
+  opacity: .9;
+  filter: drop-shadow(0 0 14px rgba(0, 229, 199, .18));
+}
+.empty-text { max-width: 460px; }
+.empty-state.small { gap: 7px; }
+.empty-state.small .empty-ico { font-size: 20px; }
+
+
+/* ============================================================
+   4. ERROR STATE (box centrato con "Riprova")
+   ============================================================ */
+
+.error-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--muted);
+}
+.error-state-ico {
+  font-size: 30px;
+  line-height: 1;
+  color: var(--red);
+  text-shadow: 0 0 16px rgba(255, 92, 108, .3);
+}
+.error-state-msg {
+  color: var(--text);
+  max-width: 460px;
+  word-break: break-word;
+}
+
+
+/* ============================================================
+   MOBILE (≤ 640px): toast a piena larghezza in basso
+   ============================================================ */
+@media (max-width: 640px) {
+  .toast-stack {
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    width: auto;
+    max-width: none;
+    align-items: stretch;
+  }
+  .toast { min-width: 0; }
+  .toast-x { font-size: 20px; padding: 0 6px; }  /* target touch più comodo */
+
+  .skel-editor { grid-template-columns: 1fr; }
+}
+
+
+/* ============================================================
+   prefers-reduced-motion: reduce → niente movimento
+   (gli elementi restano nello stato finale visibile)
+   ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  .toast,
+  .toast.leaving { animation: none; }
+  .toast-timer { display: none; }
+  .skel::after { animation: none; }
+}

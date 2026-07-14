@@ -1,0 +1,53 @@
+# === Python ===
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+backend/.pytest_cache/
+# coverage
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# === Node / frontend ===
+node_modules/
+frontend/node_modules/
+.vite/
+npm-debug.log*
+yarn-error.log*
+# NB: frontend/dist È committata di proposito (il server serve la SPA prebuildata,
+# lo Space HF gira senza Node). NON aggiungere qui `dist/`.
+
+# === Ambiente / segreti ===
+.env
+.env.*
+!.env.example
+secret.key
+data/secret.key
+
+# === Dati runtime (media caricati, DB, cartelle di lavoro) ===
+media/
+data/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# === Temporanei / OS / editor ===
+*.tmp
+*.log
+.DS_Store
+Thumbs.db
+
+# === Roba locale ===
+# Video di test/campione in root: restano su disco, fuori da git
+/*.mp4
+# Backup zip eventualmente creati dentro la cartella
+EditVideo_backup_*.zip
+
+# === Claude Code: worktrees degli agenti e stato locale ===
+.claude/

@@ -1,0 +1,286 @@
+/* ============================================================
+   IMPOSTAZIONI / TEMA (Iterazione 17) — stile Watch Dogs / ctOS
+   ------------------------------------------------------------
+   Foglio importato DENTRO SettingsPanel.tsx (nessuna modifica a
+   main.tsx). Contiene:
+     - il pulsante ingranaggio ⚙ della topbar (target ≥40px)
+     - la modale (overlay + pannello, coerente con palette/kbd-dialog)
+     - le override di densità (body.density-compact) — discrete
+     - l'interruttore movimento (html.motion-off) — neutralizza le
+       animazioni/transizioni, coerente con prefers-reduced-motion
+   Le classi sono namespaced (.settings-*) per non collidere col resto.
+   Le override reduced-motion sono raccolte IN FONDO, come negli altri file.
+   ============================================================ */
+
+
+/* ---------- ingranaggio in topbar ---------- */
+.settings-gear {
+  min-width: 40px;
+  min-height: 40px;
+  justify-content: center;
+  padding: 8px;
+  font-size: 17px;
+  line-height: 1;
+}
+.settings-gear > span { display: inline-block; }
+/* leggera rotazione dell'icona all'hover (solo transform, degrada con motion) */
+.settings-gear:hover:not(:disabled) > span { transform: rotate(35deg); }
+.settings-gear > span { transition: transform .25s cubic-bezier(.2, .7, .2, 1); }
+
+
+/* ---------- overlay / backdrop ---------- */
+.settings-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1500;                 /* sopra topbar(10)/palette(1000), sotto i toast(2000) */
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 12vh 16px 24px;
+  background: rgba(4, 6, 10, .62);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  animation: settings-overlay-in .16s ease both;
+}
+
+
+/* ---------- pannello ---------- */
+.settings-panel {
+  position: relative;
+  overflow: hidden;
+  width: min(94vw, 460px);
+  max-height: 82vh;
+  display: flex;
+  flex-direction: column;
+  background: rgba(14, 19, 28, .98);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, .6), 0 0 0 1px rgba(0, 229, 199, .06);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  animation: settings-in .18s cubic-bezier(.2, .7, .2, 1) both;
+}
+/* riga accent in cima (come topbar / palette / menu) */
+.settings-panel::before {
+  content: "";
+  position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  pointer-events: none;
+  background: var(--rainbow);
+  opacity: .9;
+}
+
+
+/* ---------- intestazione ---------- */
+.settings-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.settings-title {
+  font-family: var(--mono);
+  font-size: 14px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+.settings-close {
+  flex: 0 0 auto;
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 22px;
+  line-height: 1;
+  padding: 2px 8px;
+  border-radius: 6px;
+}
+.settings-close:hover { color: var(--text); }
+
+
+/* ---------- corpo ---------- */
+.settings-body {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #223047 transparent;
+}
+.settings-body::-webkit-scrollbar { width: 8px; }
+.settings-body::-webkit-scrollbar-track { background: transparent; }
+.settings-body::-webkit-scrollbar-thumb { background: #223047; border-radius: 4px; }
+
+.settings-group {
+  border: none;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+.settings-legend {
+  padding: 0 0 8px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+.settings-hint { margin: 8px 0 0; }
+
+
+/* ---------- accento: pastiglie con pallino colore ---------- */
+.settings-swatches {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+.settings-swatch {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 11px;
+  background: var(--input);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color .15s, box-shadow .15s, background .15s;
+}
+.settings-swatch:hover { border-color: #2c3b54; }
+.settings-swatch.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent), 0 0 12px rgba(0, 229, 199, .14);
+}
+.settings-swatch:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.settings-dot {
+  flex: 0 0 auto;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  box-shadow: 0 0 8px rgba(255, 255, 255, .12), inset 0 0 0 1px rgba(255, 255, 255, .18);
+}
+.settings-swatch-name { min-width: 0; }
+
+
+/* ---------- densità / movimento: gruppo segmentato ---------- */
+.settings-seg {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.settings-opt {
+  flex: 1 1 auto;
+  min-width: 110px;
+  text-align: center;
+  padding: 9px 12px;
+  background: var(--input);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+  transition: color .15s, border-color .15s, box-shadow .15s, background .15s;
+}
+.settings-opt:hover { color: var(--text); border-color: #2c3b54; }
+.settings-opt.selected {
+  color: var(--accent);
+  border-color: rgba(0, 229, 199, .55);
+  background: rgba(0, 229, 199, .07);
+  box-shadow: 0 0 10px rgba(0, 229, 199, .15);
+}
+.settings-opt:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+
+/* ---------- keyframes ---------- */
+@keyframes settings-overlay-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes settings-in {
+  from { opacity: 0; transform: translateY(-10px) scale(.98); }
+  to   { opacity: 1; transform: none; }
+}
+
+
+/* ============================================================
+   DENSITÀ — body.density-compact  (override DISCRETE)
+   ------------------------------------------------------------
+   Riduce padding/altezze in modo modesto senza stravolgere il
+   layout. Le selezioni body.<classe> .x hanno specificità maggiore
+   delle regole base, quindi vincono a prescindere dall'ordine.
+   ============================================================ */
+body.density-compact .topbar { padding: 6px 16px; gap: 10px; }
+body.density-compact .page { padding: 12px 16px 40px; }
+
+body.density-compact .btn { padding: 6px 11px; }
+body.density-compact .btn.small { padding: 3px 8px; }
+
+body.density-compact .videos th,
+body.density-compact .videos td { padding: 5px 8px; }
+
+body.density-compact .jobsbar { padding: 6px 10px; margin-bottom: 8px; }
+body.density-compact .batch-bar,
+body.density-compact .filters { margin-bottom: 8px; }
+
+body.density-compact .trim-controls { padding: 9px; gap: 8px; }
+body.density-compact .sub-row { padding: 6px; }
+
+/* la stessa densità si riflette nel pannello impostazioni */
+body.density-compact .settings-body { gap: 14px; padding: 12px; }
+body.density-compact .settings-swatch { padding: 7px 10px; }
+body.density-compact .settings-opt { padding: 7px 12px; }
+
+
+/* ============================================================
+   MOVIMENTO — html.motion-off  (forza NO animazioni/transizioni)
+   ------------------------------------------------------------
+   Interruttore esplicito, indipendente dall'impostazione di sistema
+   ma coerente con essa: azzera durate di animazioni e transizioni su
+   tutti gli elementi e pseudo-elementi. Tecnica robusta (durata ~0 +
+   una sola iterazione) che ferma anche i loop decorativi (sweep, pulse,
+   caret) lasciando gli elementi nello stato finale.
+   ============================================================ */
+html.motion-off *,
+html.motion-off *::before,
+html.motion-off *::after {
+  animation-duration: .001ms !important;
+  animation-delay: 0ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: .001ms !important;
+  transition-delay: 0ms !important;
+  scroll-behavior: auto !important;
+}
+
+
+/* ---------- mobile (≤ 640px): modale a piena larghezza in alto ---------- */
+@media (max-width: 640px) {
+  .settings-overlay { padding: 0; align-items: stretch; }
+  .settings-panel {
+    width: 100%;
+    max-height: 100%;
+    border-radius: 0 0 12px 12px;
+    box-shadow: 0 18px 48px rgba(0, 0, 0, .6);
+  }
+  .settings-swatches { grid-template-columns: 1fr; }
+  .settings-close { min-width: 40px; min-height: 40px; }
+}
+
+
+/* ---------- prefers-reduced-motion: reduce → niente movimento ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .settings-overlay,
+  .settings-panel { animation: none; }
+  .settings-gear > span { transition: none; }
+  .settings-gear:hover:not(:disabled) > span { transform: none; }
+  .settings-swatch,
+  .settings-opt { transition: none; }
+}

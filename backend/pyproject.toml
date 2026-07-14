@@ -1,0 +1,48 @@
+# Configurazione strumenti backend.
+#
+# Qui vive SOLO la config di ruff (static analysis). Il progetto non usa una build
+# PEP 517 basata su questo file: dipendenze e avvio restano su requirements.txt +
+# run.py / worker, come da CLAUDE.md. La config e' volutamente MINIMALE e orientata
+# alla CORRETTEZZA, non allo stile: nessun formatter viene imposto in pipeline,
+# quindi evitiamo regole cosmetiche che segnalerebbero codice esistente gia'
+# funzionante senza dare valore reale.
+
+[tool.ruff]
+# Coerente col resto del repo (frontend Prettier printWidth 100).
+line-length = 100
+target-version = "py311"
+extend-exclude = ["__pycache__"]
+
+[tool.ruff.lint]
+# Set ristretto e "a basso rumore", tutto orientato alla correttezza:
+#   F  -> pyflakes: import/variabili inutilizzati, nomi non definiti, f-string
+#         malformate (bug reali).
+#   E4 -> import mal posizionati (E401/E402).
+#   E7 -> confronti sospetti (`== None`, `== True`), `except:` nudo, ecc.
+#   E9 -> errori di sintassi / IO (rompono l'esecuzione).
+#   B  -> flake8-bugbear: trappole classiche (default mutabili, zip non-strict...).
+# Volutamente NON incluso: E501 (riga troppo lunga) e UP (pyupgrade), che senza
+# un formatter in pipeline sarebbero solo rumore stilistico su codice esistente.
+select = ["F", "E4", "E7", "E9", "B"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI usa DI PROPOSITO Depends()/File()/Query()/... nei default degli
+# argomenti: e' il pattern idiomatico del framework, non un bug. Senza questa
+# whitelist B008 genererebbe decine di falsi positivi su tutti i router.
+extend-immutable-calls = [
+  "fastapi.Depends",
+  "fastapi.File",
+  "fastapi.Query",
+  "fastapi.Form",
+  "fastapi.Header",
+  "fastapi.Body",
+  "fastapi.Path",
+  "fastapi.Cookie",
+  "fastapi.Security",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# I test impostano gli env PRIMA di importare l'app (get_settings @lru_cache),
+# perciò l'import "non in cima al file" è voluto: E402 qui è un falso positivo.
+# B011 (assert False) è un pattern legittimo negli assert dei test.
+"tests/*" = ["E402", "B011"]

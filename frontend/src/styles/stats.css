@@ -1,0 +1,163 @@
+/* ============================================================
+   Iterazione 22 — Pagina Statistiche.
+   Foglio dedicato, importato da pages/Stats.tsx (così non serve
+   toccare main.tsx). Riusa le variabili tema di styles.css.
+   Visualizzazioni in puro CSS: nessuna dipendenza chart.
+   ============================================================ */
+
+.stats-head {
+  display: flex; align-items: center; gap: 12px;
+  margin-bottom: 18px; flex-wrap: wrap;
+}
+.stats-head h1 { font-size: 20px; letter-spacing: .02em; }
+/* prompt ">_" arcobaleno davanti al titolo di pagina (tocco terminale) */
+.stats-head h1::before {
+  content: ">_ ";
+  font-family: var(--mono);
+  background: var(--rainbow);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent;
+}
+
+/* ---------- KPI cards ---------- */
+.stats-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.kpi {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+  padding: 14px 16px; min-width: 0;
+}
+.kpi-val {
+  font-family: var(--mono); font-size: 26px; font-weight: 700; line-height: 1.1;
+  color: var(--text); font-variant-numeric: tabular-nums;
+}
+.kpi-lbl { color: var(--muted); font-size: 12px; margin-top: 6px; }
+.kpi-accent { border-color: rgba(0, 229, 199, .4); box-shadow: 0 0 12px rgba(0, 229, 199, .1); }
+.kpi-accent .kpi-val {
+  background: var(--rainbow);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent;
+  text-shadow: none;
+}
+
+/* ---------- sezioni ---------- */
+.stats-section {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+  padding: 16px; margin-bottom: 18px;
+}
+.stats-section h2 {
+  font-family: var(--mono); font-size: 12px; font-weight: 650; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--muted); margin-bottom: 14px;
+}
+.stats-subh {
+  font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--muted); margin: 18px 0 10px;
+}
+
+/* ---------- distribuzione stati: barre orizzontali ---------- */
+.stat-bars { display: flex; flex-direction: column; gap: 10px; }
+.stat-row {
+  display: grid; grid-template-columns: 120px 1fr 44px;
+  align-items: center; gap: 12px;
+}
+.stat-row-label { color: var(--text); font-size: 13px; }
+.stat-track {
+  position: relative; height: 12px; background: var(--input);
+  border: 1px solid var(--border); border-radius: 4px; overflow: hidden;
+}
+.stat-fill {
+  position: absolute; left: 0; top: 0; bottom: 0; min-width: 2px;
+  background: var(--accent); border-radius: 3px 0 0 3px;
+  transition: width .4s ease;
+}
+.stat-row-val {
+  font-family: var(--mono); font-size: 13px; text-align: right;
+  color: var(--text); font-variant-numeric: tabular-nums;
+}
+/* colori per stato, coerenti coi badge di styles.css */
+.stat-fill[data-status="uploaded"] { background: #9db4d6; }
+.stat-fill[data-status="transcribing"],
+.stat-fill[data-status="exporting"] { background: var(--yellow); }
+.stat-fill[data-status="review"] { background: var(--orange); }
+.stat-fill[data-status="ready"] { background: var(--green); }
+.stat-fill[data-status="exported"] { background: var(--accent); }
+.stat-fill[data-status="error"] { background: var(--red); }
+
+/* ---------- throughput inline ---------- */
+.stats-inline { display: flex; gap: 26px; flex-wrap: wrap; }
+.mini-val {
+  font-family: var(--mono); font-size: 20px; font-weight: 700; color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.mini-lbl { color: var(--muted); font-size: 12px; margin-top: 2px; }
+
+/* ---------- grafico produzione giornaliera: colonne verticali ---------- */
+.daily {
+  display: flex; align-items: stretch; gap: 6px;
+  height: 130px;
+}
+.daily-col {
+  flex: 1 1 0; min-width: 0; height: 100%;
+  display: flex; flex-direction: column; align-items: center;
+}
+.daily-bar-wrap {
+  flex: 1; width: 100%; min-height: 0;
+  display: flex; align-items: flex-end; justify-content: center;
+}
+.daily-bar {
+  width: 100%; max-width: 26px; min-height: 0;
+  background: linear-gradient(180deg, var(--accent), #00bfae);
+  border-radius: 3px 3px 0 0; transition: height .4s ease;
+}
+.daily-cap {
+  font-family: var(--mono); font-size: 11px; color: var(--text);
+  height: 15px; line-height: 15px; font-variant-numeric: tabular-nums;
+}
+.daily-day {
+  font-family: var(--mono); font-size: 9.5px; color: var(--muted);
+  margin-top: 2px; white-space: nowrap;
+}
+
+/* ---------- dettagli ---------- */
+.stats-dl {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px; margin: 0;
+}
+.stats-dl > div {
+  background: var(--input); border: 1px solid var(--border); border-radius: 6px;
+  padding: 10px 12px;
+}
+.stats-dl dt { color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+.stats-dl dd {
+  margin: 0; font-family: var(--mono); font-size: 16px; color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- nota assunzione ---------- */
+.stats-note {
+  color: var(--muted); font-size: 12px; line-height: 1.5;
+  border-left: 2px solid var(--accent-2); padding-left: 12px; margin: 4px 0 0;
+}
+.stats-note strong { color: var(--text); }
+
+/* ---------- skeleton ---------- */
+.stats-skel-row { display: flex; gap: 12px; align-items: center; margin-bottom: 10px; }
+
+/* ---------- mobile ---------- */
+@media (max-width: 640px) {
+  .stats-head h1 { font-size: 18px; }
+  .stat-row { grid-template-columns: 92px 1fr 34px; gap: 8px; }
+  .stat-row-label { font-size: 12px; }
+  .stats-inline { gap: 18px; }
+  .daily { height: 112px; gap: 3px; }
+  .daily-day { font-size: 8.5px; }
+  .stats-kpis { gap: 10px; }
+}
+
+/* rispetta prefers-reduced-motion: niente transizioni sulle barre */
+@media (prefers-reduced-motion: reduce) {
+  .stat-fill, .daily-bar { transition: none; }
+}

@@ -1,0 +1,452 @@
+diff --git a/OPTIMIZATION_REPORT.md b/OPTIMIZATION_REPORT.md
+new file mode 100644
+index 0000000..8d0b6bd
+--- /dev/null
++++ b/OPTIMIZATION_REPORT.md
+@@ -0,0 +1,160 @@
++# OPTIMIZATION_REPORT — performance & qualità del codice EditVideo
++
++> Sessione di **ottimizzazione**: analisi + implementazione del primo scaglione di
++> quick win (branch `perf/quick-wins-1`). Focus su ciò che NON era già coperto dai
++> report esistenti (`SCALING_REPORT` = data-lifecycle, `SECURITY_REPORT` = sicurezza,
++> `TEST_REPORT` = baseline test). Tutti i riferimenti sono `file:riga` sul codice
++> verificato. Contesto deploy: **Hugging Face Space free** (2 vCPU / 16 GB, CPU-only,
++> disco effimero).
++
++---
++
++## 0. Sintesi esecutiva
++
++Il progetto è già sano dove di solito fa male: **bundle frontend snello** (~61 KB gzip
++il chunk principale, code-splitting per route già presente, nessuna libreria pesante,
++nessun leak di `URL.createObjectURL`), data-lifecycle e sicurezza già auditati. Le
++ottimizzazioni residue sono di due tipi: **CPU sprecata nel processing** lato server e
++**disciplina di render/polling** lato client — entrambe si sentono sul HF free a 2 vCPU.
++
++**Implementato in questo batch (7 interventi, suite verde):** vedi §1. In sintesi: stop
++alla decodifica video inutile in silencedetect, stop alla ricompressione dei media,
++media job in SQL bounded, sessione DB ridondante rimossa, listener keydown registrati
++una volta sola, polling gated sulla visibilità, guardia anti-race nel caricamento editor.
++
++**Rimandato a batch successivi (più invasivo, §2):** alleggerire il payload di
++`/api/videos` (array `cuts` → conteggio), non tenere la sessione DB aperta durante ffmpeg,
++`zoompan` solo sull'intro, spezzare `Editor.tsx` (monolite 1677 righe) con `SegmentRow`
++memoizzato + key stabile, ridimensionare la Waveform.
++
++---
++
++## 1. Implementato in questo batch — `perf/quick-wins-1`
++
++### 1.1 `silencedetect` non decodifica più il video (`-vn`)
++**File:** `backend/app/services/silence.py:25-33`
++**Prima:** `ffmpeg -i <path> -af silencedetect ... -f null -` — il muxer `null` mappa
++anche lo stream video, quindi ffmpeg **decodifica l'intero H.264 1080×1920** solo per
++buttarlo. L'auto-silenzi è ON di default e gira su ogni `run_transcribe` e ogni `autocut`.
++**Dopo:** aggiunto `-vn` → il video non viene nemmeno decodificato.
++**Misura (benchmark reale su questa macchina):** su una clip 9s a tinta unita (decodifica
++banale) **0,350s → 0,071s per run, −80%**. Su un video reale complesso il divario è molto
++più ampio (lì la decodifica H.264 pesa davvero). Impatto: **Alto** · Effort: **S**.
++
++### 1.2 I media non vengono più ricompressi da GZip
++**File:** `backend/app/routers/videos.py:325-341` (`_serve_media`) + `backend/app/main.py:55-59`
++**Prima:** `GZipMiddleware` app-wide comprimeva **qualsiasi** risposta, inclusi
++`/file`, `/thumbnail`, `/export/file|download` — cioè MP4 (fino a 2 GB) e JPEG **già
++compressi**: ~0% di guadagno, 100% di CPU, e Range/seek del `<video>` degradati.
++**Dopo:** `_serve_media` imposta `Content-Encoding: identity` sui media → Starlette 1.0
++salta la compressione e lascia intatto lo streaming Range (un solo punto, copre tutti e 4
++gli endpoint). In più `compresslevel` del gzip 9→6 (stesso rapporto sul JSON, meno CPU).
++Impatto: **Alto** · Effort: **S**.
++
++### 1.3 Media dei tempi job in SQL bounded (non più tutta la tabella in Python)
++**File:** `backend/app/services/metrics.py:27-53`
++**Prima:** `_avg_done_job_seconds` faceva `SELECT` di **tutte** le righe `done` (con la
++retention a 30 giorni: migliaia) e mediava in Python; invocata dall'health profondo (ON di
++default) e da `/api/metrics`.
++**Dopo:** `ORDER BY finished_at DESC LIMIT 500` → scan bounded, aritmetica date ancora
++backend-agnostica, media "recente" più utile. Impatto: **Medio** · Effort: **S**.
++
++### 1.4 Rimossa la terza sessione DB in export
++**File:** `backend/app/worker.py:238-280`
++**Prima:** `run_export` apriva una sessione extra solo per rileggere `has_audio` (già
++presente sull'oggetto `video` della prima sessione).
++**Dopo:** `has_audio` catturato nel primo blocco; sessione ridondante eliminata.
++Impatto: **Basso** · Effort: **S**.
++
++### 1.5 Listener keydown registrati una sola volta (Editor)
++**File:** `frontend/src/pages/Editor.tsx` (effetti scorciatoie e undo/redo)
++**Prima:** due `useEffect` di `keydown` **senza dependency array** → `add/removeEventListener`
++su `window` a **ogni** render; durante il playback `setCurrent` (~4 Hz) causava churn
++continuo di listener.
++**Dopo:** pattern *latest-ref* — l'handler è tenuto in un `useRef` sempre aggiornato e il
++listener `window` è registrato una sola volta (`[]`). Comportamento identico, zero churn.
++Impatto: **Alto** · Effort: **S**.
++
++### 1.6 Polling gated sulla visibilità + backoff a riposo (Dashboard)
++**File:** `frontend/src/pages/Dashboard.tsx` (nuovo hook `useVisiblePolling`)
++**Prima:** due `setInterval` (job 2,5s; video 2,5/10s) **senza** gating: continuavano a
++pollare all'infinito anche con la tab/iframe in background → richieste a vuoto sul backend
++HF free.
++**Dopo:** hook `useVisiblePolling` che ferma i timer su `document.hidden` e riparte (con
++refresh immediato) al ritorno; job con backoff a riposo (2,5s attivo / 8s idle).
++Impatto: **Alto** · Effort: **S/M**.
++
++### 1.7 Guardia anti-race nel caricamento dell'editor
++**File:** `frontend/src/pages/Editor.tsx:113-155` (`load` + `loadSeqRef`)
++**Prima:** cambiando video rapidamente (Precedente/Successivo), la risposta di un `load()`
++precedente poteva arrivare dopo e **sovrascrivere** lo stato del video corrente.
++**Dopo:** numero di sequenza per ogni `load()`; le risposte superate vengono scartate.
++Impatto: **Medio/Alto** · Effort: **S**.
++
++**Verifica batch:** backend **439** test veloci + **4** smoke E2E verdi; frontend
++`tsc` OK, `eslint --max-warnings 0` OK, **67** test verdi, build OK. `frontend/dist`
++rigenerata (è versionata di proposito).
++
++---
++
++## 2. Rimandato — candidati per i prossimi batch (più invasivi)
++
++Ordinati per impatto × probabilità. NON implementati qui perché richiedono modifiche
++strutturali e/o sign-off (comportamento visibile), da fare con calma e test dedicati.
++
++### Backend
++1. **`/api/videos` rispedisce l'intero array `cuts` ad ogni poll** — `routers/videos.py:127-143`
++   + `schemas.py:52`. Su clip lunghe i tagli auto superano il migliaio; la Dashboard usa
++   solo `cuts.length`. Introdurre `VideoListOut` con `cut_count: int` (il get singolo
++   dell'editor continua a restituire i cuts completi). **Medio-Alto · M.**
++2. **Sessione/connessione DB tenuta aperta durante subprocess ffmpeg** — `routers/videos.py:216-235`
++   (`autocut`, `silencedetect` timeout 600s) e `72-118` (`upload`). Su SQLite la transazione
++   di lettura lunga impedisce il checkpoint del WAL e lega una connessione del pool. Leggere,
++   chiudere la sessione, lanciare ffmpeg, riaprire una sessione breve per l'esito. **Medio · M.**
++3. **`zoompan` su tutto il video per un intro-zoom di 0,9s** (default ON) — `services/ffmpeg.py:219-232`.
++   Applicarlo solo al segmento iniziale (`split`+`zoompan`+`concat`) quando non c'è
++   `smooth_zoom`. Richiede verifica visiva. **Medio · M/L.**
++4. **Cache modello Whisper a slot singolo** — `services/transcribe.py:18-48`. Ricarica ~1,5 GB
++   quando alterna `medium`↔`small` (fallback). Trasformare in `dict[key→model]` (tetto 2).
++   Solo su path d'errore. **Basso-Medio · S.**
++5. **Guardrail `worker_concurrency>1` con CPU** — `worker.py:416-423`. Oversubscription su
++   2 vCPU: avvisare in `validate_runtime`. **Basso · S.**
++6. **Doppio commit per file in upload** — `routers/videos.py:112-117`. Un fsync per video +
++   uno per job; accorpare. **Basso · S.**
++7. **Qualità/DRY**: duplicazione normalizzazione `plan` (`ffmpeg.py:166,320`); `build_export_graph`
++   ~100 righe da spezzare; `remap_segments_detailed` vs `_plan` quasi identiche
++   (`timeline.py:162-217`); `silences_to_cuts` delegabile a `_and_speedups` (`silence.py`);
++   `_get_video` duplicato (`videos.py:28`, `subtitles.py:16`). **Basso · S ciascuno.**
++
++### Frontend
++1. **`Editor.tsx` monolite (1677 righe, ~40 `useState`)** — è la radice dei problemi di
++   render. Estrarre `usePlayer`, `useJobPolling`, `useSegmentHistory`, `<SubtitleList>`,
++   `<TrimControls>`, `<AutomationsPanel>`. **Medio (abilita gli altri) · L.**
++2. **Lista sottotitoli: re-render ~4 Hz + `key={i}` su lista editabile** — `Editor.tsx:1500-1590`
++   (key ~1502). Estrarre `SegmentRow` come `React.memo` con **id stabile** come key (esiste
++   già `Segment.id?` in `types.ts:37`); memoizzare `activeSegment`. Corregge anche i bug di
++   focus su split/merge/delete. **Alto · M.**
++3. **Waveform scarica l'intero video in RAM (fino a 180 MB) per una decorazione** —
++   `Waveform.tsx:30,149-160`. Abbassare `MAX_BYTES`, disattivare su viewport strette/mobile,
++   o calcolare i picchi lato backend e servirli come JSON. **Alto · M.**
++4. **Tabella Dashboard non memoizzata** — `Dashboard.tsx` (`shown.map`). Ogni poll rirenderizza
++   tutte le righe (ognuna con un `<Menu>`). Estrarre `VideoRow` come `React.memo`;
++   valutare virtualizzazione su librerie grandi. **Medio · M.**
++5. **Karaoke word-highlight guidato da stato React a ~4 Hz** — `Editor.tsx` (~975). Guidarlo via
++   `requestAnimationFrame` leggendo `video.currentTime` (come già fa lo zoom d'ingresso),
++   senza `setCurrent`. Migliora la fluidità dell'anteprima. **Basso/Medio · M.**
++6. **DRY frontend**: `flash`+`setTimeout` e traduzione errori duplicati tra `Editor` e
++   `Dashboard`; `setTimeout` di `flash` non ripulito su unmount; `api.req` senza `signal`
++   (precondizione per abortire le fetch). **Basso · S ciascuno.**
++
++---
++
++## 3. TOP priorità per il prossimo batch
++
++1. **`SegmentRow` memoizzato + key stabile** (frontend) — taglia il re-render di centinaia
++   di `<textarea>` 4 volte/sec e corregge i bug di focus. *Alto/M.*
++2. **`/api/videos` → `cut_count`** (backend) — toglie decine di migliaia di validazioni
++   `CutRange` ad ogni poll. *Medio-Alto/M.*
++3. **Waveform ridimensionata** (frontend) — evita picchi di RAM da 180 MB nell'iframe. *Alto/M.*
++4. **Sessione DB fuori dai subprocess ffmpeg** (backend) — WAL e pool più sani. *Medio/M.*
++5. **Spezzare `Editor.tsx`** (frontend) — abilita 1 e 5 e riduce il rischio di regressioni. *L.*
+diff --git a/backend/app/main.py b/backend/app/main.py
+index a22f168..07ca6ae 100644
+--- a/backend/app/main.py
++++ b/backend/app/main.py
+@@ -52,8 +52,11 @@ async def lifespan(app: FastAPI):
+ 
+ app = FastAPI(title="EditVideo", version=APP_VERSION, lifespan=lifespan)
+ 
+-# Compressione gzip delle risposte grandi (es. lista video con sottotitoli)
+-app.add_middleware(GZipMiddleware, minimum_size=1024)
++# Compressione gzip delle risposte grandi (es. lista video con sottotitoli).
++# compresslevel=6 (invece del default 9): rapporto quasi identico sul JSON ma
++# molta meno CPU su 2 vCPU. I media sono esclusi a monte (Content-Encoding
++# "identity" in videos._serve_media): niente ricompressione di mp4/jpeg.
++app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)
+ 
+ 
+ @app.middleware("http")
+diff --git a/backend/app/routers/videos.py b/backend/app/routers/videos.py
+index 21c6a6a..36d278a 100644
+--- a/backend/app/routers/videos.py
++++ b/backend/app/routers/videos.py
+@@ -328,6 +328,12 @@ def _serve_media(request: Request, file_path: str, media_type: str, *,
+     Se l'If-None-Match del client combacia con l'ETag corrente ritorna 304
+     (senza corpo) con gli stessi header; altrimenti la FileResponse completa."""
+     headers = _media_cache_headers(file_path, immutable=immutable)
++    # I media (mp4/jpeg) sono GIA' compressi: dichiarare "identity" fa sì che la
++    # GZipMiddleware li lasci passare intatti invece di ri-comprimerli (≈0% di
++    # guadagno, 100% di CPU sprecata su 2 vCPU) e preserva lo streaming Range del
++    # tag <video> (il seek dell'anteprima editor). Starlette salta la compressione
++    # quando il Content-Encoding è già impostato.
++    headers["Content-Encoding"] = "identity"
+     inm = request.headers.get("if-none-match")
+     if inm and _etag_matches(inm, headers["ETag"]):
+         return Response(status_code=304, headers=headers)
+diff --git a/backend/app/services/metrics.py b/backend/app/services/metrics.py
+index acaf350..89a567f 100644
+--- a/backend/app/services/metrics.py
++++ b/backend/app/services/metrics.py
+@@ -24,21 +24,29 @@ def _count_by_status(db: Session, model) -> dict[str, int]:
+     return {status: int(n) for status, n in rows}
+ 
+ 
++# Finestra massima di job considerati per la media: limita lo scan agli ultimi
++# N completati invece di caricare TUTTA la tabella `jobs` (che con la retention a
++# 30 giorni può contare migliaia di righe). Bounded + rappresentativo: la media
++# "recente" è anche più utile di quella all-time per un tempo tipico di lavoro.
++_AVG_WINDOW = 500
++
++
+ def _avg_done_job_seconds(db: Session) -> float | None:
+-    """Durata media (s) dei job completati con successo.
++    """Durata media (s) degli ultimi job completati con successo.
+ 
+-    Considera solo i job ``done`` con ``started_at``/``finished_at`` valorizzati.
+-    La differenza tra timestamp e' calcolata in Python per restare agnostici
+-    rispetto al backend (SQLite e Postgres divergono nell'aritmetica sulle date);
+-    su scala single-node il numero di job e' contenuto, quindi caricare le coppie
+-    e' accettabile (KISS). Ritorna ``None`` se non c'e' ancora alcun job
++    Considera solo i job ``done`` con ``started_at``/``finished_at`` valorizzati,
++    limitandosi ai più recenti ``_AVG_WINDOW`` (bounded: l'health profondo e
++    /api/metrics possono essere interrogati di frequente da un monitor, quindi lo
++    scan non deve crescere con la tabella). La differenza tra timestamp è calcolata
++    in Python per restare agnostici rispetto al backend (SQLite e Postgres divergono
++    nell'aritmetica sulle date). Ritorna ``None`` se non c'è ancora alcun job
+     completato misurabile."""
+     rows = db.execute(
+         select(Job.started_at, Job.finished_at).where(
+             Job.status == JobStatus.DONE,
+             Job.started_at.is_not(None),
+             Job.finished_at.is_not(None),
+-        )
++        ).order_by(Job.finished_at.desc()).limit(_AVG_WINDOW)
+     ).all()
+     durate = [
+         (finished - started).total_seconds()
+diff --git a/backend/app/services/silence.py b/backend/app/services/silence.py
+index fb576fa..5892b22 100644
+--- a/backend/app/services/silence.py
++++ b/backend/app/services/silence.py
+@@ -21,8 +21,14 @@ def detect_silences(
+     noise_db: float = -35.0,
+     min_dur: float = 0.4,
+ ) -> list[tuple[float, float | None]]:
+-    """Ritorna [(inizio, fine), ...]; fine=None se il file termina in silenzio."""
+-    cmd = ["ffmpeg", "-i", str(path),
++    """Ritorna [(inizio, fine), ...]; fine=None se il file termina in silenzio.
++
++    `-vn` è essenziale: senza, il muxer `null` mappa anche lo stream video e
++    ffmpeg decodifica l'intero H.264 1080x1920 solo per buttarlo, sprecando
++    secondi di CPU per un filtro puramente audio. Con `-vn` il video non viene
++    nemmeno decodificato (misurato: ~-80% di tempo/CPU su questo comando).
++    """
++    cmd = ["ffmpeg", "-i", str(path), "-vn",
+            "-af", f"silencedetect=noise={noise_db}dB:d={min_dur}",
+            "-f", "null", "-"]
+     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+diff --git a/backend/app/worker.py b/backend/app/worker.py
+index 2ef2fd9..6688f3b 100644
+--- a/backend/app/worker.py
++++ b/backend/app/worker.py
+@@ -258,6 +258,9 @@ def run_export(job_id: str, video_id: str) -> None:
+         sub_scale = video.sub_scale if video.sub_scale is not None else 1.0
+         src, vid = video.stored_path, video.id
+         intro_zoom, fps = bool(video.intro_zoom), float(video.fps or 30)
++        # has_audio è già su questo oggetto: catturarlo qui evita una seconda
++        # SELECT/sessione più avanti (il valore non cambia durante l'export).
++        has_audio = bool(video.has_audio)
+ 
+     if not src or not Path(src).exists():
+         raise RuntimeError(f"File sorgente mancante: {src or '(percorso vuoto)'}")
+@@ -273,11 +276,6 @@ def run_export(job_id: str, video_id: str) -> None:
+     ass_path: Path | None = None
+     remapped = remap_segments_detailed_plan(segments, plan)
+     dst = settings.exports_dir / f"{vid}.mp4"
+-    with SessionLocal() as db:
+-        v2 = db.get(Video, video_id)
+-        if not v2:
+-            raise RuntimeError("Video eliminato durante l'export")
+-        has_audio = v2.has_audio
+     try:
+         # la scrittura dell'.ass sta dentro il try: se fallisce a metà (es. disco
+         # pieno) il finally rimuove comunque il file troncato, come per l'MP4.
+diff --git a/frontend/src/pages/Dashboard.tsx b/frontend/src/pages/Dashboard.tsx
+index 4413e77..732662f 100644
+--- a/frontend/src/pages/Dashboard.tsx
++++ b/frontend/src/pages/Dashboard.tsx
+@@ -1,4 +1,4 @@
+-import { useCallback, useEffect, useMemo, useState } from "react";
++import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+ import { Link } from "react-router-dom";
+ import { api, ApiError, AuthError, downloadUrl, thumbUrl } from "../api";
+ import JobsBar from "../components/JobsBar";
+@@ -39,6 +39,41 @@ const SORT_META: Record<SortKey, { label: string; firstDir: SortDir }> = {
+   created: { label: "Caricato", firstDir: "desc" },
+ };
+ 
++/**
++ * Esegue `fn` subito e poi ogni `ms`, ma SOLO mentre la tab/iframe è visibile.
++ * Su `document.hidden` il timer si ferma (niente polling a vuoto in background
++ * sul backend HF free); tornando visibile riparte con un refresh immediato.
++ * `fn` è tenuto in un ref, quindi l'intervallo si ricrea solo quando cambia `ms`
++ * (es. il poll adattivo 2.5s/10s), non ad ogni render.
++ */
++function useVisiblePolling(fn: () => void, ms: number) {
++  const fnRef = useRef(fn);
++  fnRef.current = fn;
++  useEffect(() => {
++    let timer: number | null = null;
++    const tick = () => fnRef.current();
++    const start = () => {
++      if (timer == null) {
++        tick();
++        timer = window.setInterval(tick, ms);
++      }
++    };
++    const stop = () => {
++      if (timer != null) {
++        window.clearInterval(timer);
++        timer = null;
++      }
++    };
++    const onVisibility = () => (document.hidden ? stop() : start());
++    if (!document.hidden) start();
++    document.addEventListener("visibilitychange", onVisibility);
++    return () => {
++      stop();
++      document.removeEventListener("visibilitychange", onVisibility);
++    };
++  }, [ms]);
++}
++
+ export default function Dashboard({ onAuthError }: { onAuthError: () => void }) {
+   const toast = useToast();
+   const [videos, setVideos] = useState<Video[]>([]);
+@@ -92,20 +127,15 @@ export default function Dashboard({ onAuthError }: { onAuthError: () => void })
+   );
+ 
+   const jobsActive = jobs.length > 0;
++  const busy = jobsActive || uploading;
+ 
+-  // jobs: poll leggero e costante (2.5s) per accorgersi subito dei lavori nuovi
+-  useEffect(() => {
+-    refreshJobs();
+-    const t = window.setInterval(refreshJobs, 2500);
+-    return () => window.clearInterval(t);
+-  }, [refreshJobs]);
++  // jobs: poll per accorgersi dei lavori nuovi — 2.5s quando c'è attività, 8s a
++  // riposo (backoff). Gated sulla visibilità: fermo in background.
++  useVisiblePolling(refreshJobs, busy ? 2500 : 8000);
+ 
+-  // lista video: poll adattivo — 2.5s quando c'è attività (job o upload), 10s a riposo
+-  useEffect(() => {
+-    refreshVideos();
+-    const t = window.setInterval(refreshVideos, jobsActive || uploading ? 2500 : 10000);
+-    return () => window.clearInterval(t);
+-  }, [refreshVideos, jobsActive, uploading]);
++  // lista video: poll adattivo — 2.5s quando c'è attività (job o upload), 10s a
++  // riposo. Anch'esso gated sulla visibilità.
++  useVisiblePolling(refreshVideos, busy ? 2500 : 10000);
+ 
+   const loadTemplates = useCallback(() => {
+     api.templates().then(setTemplates).catch(() => undefined);
+diff --git a/frontend/src/pages/Editor.tsx b/frontend/src/pages/Editor.tsx
+index ebe454d..affefb1 100644
+--- a/frontend/src/pages/Editor.tsx
++++ b/frontend/src/pages/Editor.tsx
+@@ -110,12 +110,19 @@ export default function Editor({ onAuthError }: Props) {
+     [onAuthError, flash],
+   );
+ 
++  // Guardia anti-race: ogni load() prende un numero di sequenza; se al ritorno
++  // delle fetch una load() più recente è già partita (es. cambio rapido di video
++  // con Precedente/Successivo), la risposta vecchia viene SCARTATA invece di
++  // sovrascrivere lo stato del video corrente.
++  const loadSeqRef = useRef(0);
+   const load = useCallback(async () => {
++    const seq = ++loadSeqRef.current;
+     setLoadError(null);
+     try {
+       const [v, segs, st] = await Promise.all([
+         api.getVideo(id), api.getSubtitles(id), api.styles(),
+       ]);
++      if (seq !== loadSeqRef.current) return; // superata da una load più recente
+       setVideo(v);
+       setSegments(segs);
+       setPast([]);
+@@ -137,6 +144,7 @@ export default function Editor({ onAuthError }: Props) {
+       setAutoExport(v.auto_export);
+       setDirty(false);
+     } catch (e) {
++      if (seq !== loadSeqRef.current) return; // errore di una richiesta superata: ignora
+       if (!(e instanceof AuthError)) {
+         setLoadError(`Impossibile caricare il video: ${String((e as Error).message ?? e)}`);
+       }
+@@ -765,7 +773,11 @@ export default function Editor({ onAuthError }: Props) {
+ 
+   const working = video?.status === "transcribing" || video?.status === "exporting" || busy !== "";
+ 
+-  // scorciatoie tastiera (ignorate quando si scrive in un campo)
++  // scorciatoie tastiera (ignorate quando si scrive in un campo).
++  // Il listener window si registra UNA sola volta (effetto con [] più sotto);
++  // qui si tiene solo aggiornato un ref all'ultima closure, così durante il
++  // playback (setCurrent ~4Hz) non si fa add/removeEventListener ad ogni render.
++  const shortcutRef = useRef<((e: KeyboardEvent) => void) | null>(null);
+   useEffect(() => {
+     function onKey(e: KeyboardEvent) {
+       const el = e.target as HTMLElement | null;
+@@ -811,13 +823,19 @@ export default function Editor({ onAuthError }: Props) {
+           break;
+       }
+     }
+-    window.addEventListener("keydown", onKey);
+-    return () => window.removeEventListener("keydown", onKey);
++    shortcutRef.current = onKey;
+   });
++  useEffect(() => {
++    const h = (e: KeyboardEvent) => shortcutRef.current?.(e);
++    window.addEventListener("keydown", h);
++    return () => window.removeEventListener("keydown", h);
++  }, []);
+ 
+   // undo/redo dei segmenti: Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y.
+   // Mentre si digita in un campo (input/textarea) lasciamo l'undo NATIVO del testo:
+   // lo stack locale agisce solo fuori dai campi (o dai bottoni della barra sottotitoli).
++  // Stesso pattern latest-ref dell'effetto sopra: listener registrato una volta.
++  const undoRedoRef = useRef<((e: KeyboardEvent) => void) | null>(null);
+   useEffect(() => {
+     function onKey(e: KeyboardEvent) {
+       if (!(e.ctrlKey || e.metaKey)) return;
+@@ -831,9 +849,13 @@ export default function Editor({ onAuthError }: Props) {
+       if (redoCombo) { if (futureSegs.length) { e.preventDefault(); redo(); } }
+       else if (past.length) { e.preventDefault(); undo(); }
+     }
+-    window.addEventListener("keydown", onKey);
+-    return () => window.removeEventListener("keydown", onKey);
++    undoRedoRef.current = onKey;
+   });
++  useEffect(() => {
++    const h = (e: KeyboardEvent) => undoRedoRef.current?.(e);
++    window.addEventListener("keydown", h);
++    return () => window.removeEventListener("keydown", h);
++  }, []);
+ 
+   if (!video) {
+     return (

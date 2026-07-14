@@ -1,0 +1,170 @@
+/* ============================================================
+   TERMINALE / CRT (Iterazione 25) — layer estetico ADDITIVO
+   ------------------------------------------------------------
+   Skin retro-terminale, opzionale e non invasiva, sovrapposta al
+   look Watch Dogs / ctOS esistente. Tutto è racchiuso sotto la
+   classe html.crt-on (impostazione “Effetto CRT / terminale”,
+   default: attiva ma sottile): togliendo la classe l'app torna
+   esattamente all'aspetto base, senza residui.
+
+   Contiene:
+     1) Overlay CRT full-screen: scanline + vignettatura + flicker
+        tenue. position:fixed, pointer-events:none, z-index 50
+        (sopra il contenuto/topbar, SOTTO menu(60)/palette(1000)/
+        modali(1500)/toast(2000)). Non intercetta MAI i click.
+     2) Tipografia monospace sugli elementi “da terminale”
+        (bottoni, chip, titoli) — riusa la var --mono. Il testo di
+        lettura lungo (nomi video, sottotitoli, tagline) NON è toccato.
+     3) Cursore a blocco lampeggiante (▉) accanto alla brand.
+     4) Supporto al typewriter della brand (il testo è renderizzato
+        dal componente Typewriter; qui solo lo stile).
+
+   Le classi sono namespaced (.crt-* / .term-*) per non collidere.
+   L'accento NON è forzato: cursore e glow usano var(--accent), cioè
+   l'accento scelto dall'utente (inclusi i nuovi preset Fosforo/Ambra).
+   Le override reduced-motion / motion-off sono raccolte IN FONDO,
+   come negli altri fogli.
+   ============================================================ */
+
+
+/* ============================================================
+   1. OVERLAY CRT FULL-SCREEN
+   ------------------------------------------------------------
+   L'elemento è sempre montato (CRTOverlay in App) ma resta
+   display:none finché non c'è html.crt-on: nessun costo di paint
+   quando l'effetto è disattivato, e reazione dal vivo al toggle
+   (nessuno stato React necessario).
+   ============================================================ */
+
+.crt-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;                 /* sopra topbar(10); sotto menu(60)/palette(1000)/modali(1500)/toast(2000) */
+  pointer-events: none;        /* non intercetta MAI i click */
+  display: none;
+}
+html.crt-on .crt-overlay { display: block; }
+
+/* scanline orizzontali sottili (::before) — righe scure ogni 3px.
+   Intensità governata dall'opacity del layer (~0.08, in 0.05–0.10). */
+.crt-overlay::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: repeating-linear-gradient(
+    0deg,
+    rgba(0, 0, 0, 0.9) 0px,
+    rgba(0, 0, 0, 0.9) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  opacity: 0.08;
+}
+
+/* vignettatura leggera (::after) — bordi/angoli appena più scuri */
+.crt-overlay::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    130% 130% at 50% 50%,
+    transparent 60%,
+    rgba(0, 0, 0, 0.22) 100%
+  );
+}
+
+/* flicker MOLTO tenue — un velo luminoso quasi impercettibile che
+   “sfarfalla”. L'ampiezza effettiva è ~0.01 (base 0.02 * opacity). */
+.crt-flicker {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: rgba(255, 255, 255, 0.02);
+  opacity: 0.4;
+  animation: crt-flicker 2.8s steps(1, end) infinite;
+}
+@keyframes crt-flicker {
+  0%   { opacity: 0.35; }
+  12%  { opacity: 0.50; }
+  20%  { opacity: 0.32; }
+  33%  { opacity: 0.48; }
+  47%  { opacity: 0.30; }
+  58%  { opacity: 0.55; }
+  70%  { opacity: 0.38; }
+  81%  { opacity: 0.52; }
+  92%  { opacity: 0.34; }
+  100% { opacity: 0.42; }
+}
+
+
+/* ============================================================
+   2. TIPOGRAFIA “DA TERMINALE” (monospace)
+   ------------------------------------------------------------
+   Riusa la var --mono già presente. Applicata SOLO a elementi
+   brevi (bottoni, chip, titoli): il testo di lettura lungo resta
+   nel font di sistema per leggibilità. La brand, i badge e le
+   “eyebrow” usano già --mono nel resto dell'app.
+   ============================================================ */
+
+html.crt-on .btn,
+html.crt-on .chip,
+html.crt-on .video-title,
+html.crt-on h1,
+html.crt-on h2,
+html.crt-on h3 {
+  font-family: var(--mono);
+}
+
+
+/* ============================================================
+   3. BRAND: typewriter + cursore a blocco (▉)
+   ------------------------------------------------------------
+   Il componente Typewriter renderizza: [testo sr-only] +
+   [.term-typed animato] + [.term-cursor ▉]. Il cursore è visibile
+   solo in modalità terminale (html.crt-on) e lampeggia; con il
+   movimento ridotto resta acceso ma fisso (vedi override in fondo).
+   ============================================================ */
+
+.term-typed {
+  white-space: pre;            /* preserva gli spazi durante la digitazione */
+}
+
+.term-cursor {
+  display: none;               /* visibile solo con html.crt-on */
+  margin-left: 0.1em;
+  color: var(--accent);        /* segue l'accento scelto dall'utente */
+  font-family: var(--mono);
+  font-weight: 400;
+  opacity: 1;
+  text-shadow: 0 0 8px var(--accent);
+  animation: term-cursor-blink 1.1s steps(1, end) infinite;
+}
+html.crt-on .term-cursor { display: inline-block; }
+
+@keyframes term-cursor-blink {
+  0%, 49%   { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+
+/* ============================================================
+   4. MOVIMENTO RIDOTTO — html.motion-off (impostazione app)
+   ------------------------------------------------------------
+   Coerente con il resto dell'app: niente flicker, niente blink del
+   cursore. Lo scanline e la vignettatura restano FISSI (statici).
+   Il typewriter è gestito lato componente (mostra subito il testo
+   intero quando il movimento è ridotto).
+   ============================================================ */
+html.motion-off .crt-flicker { animation: none; opacity: 0; }
+html.motion-off .term-cursor { animation: none; opacity: 1; }
+
+
+/* ============================================================
+   5. prefers-reduced-motion: reduce → stessa resa statica
+   ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  .crt-flicker { animation: none; opacity: 0; }
+  .term-cursor { animation: none; opacity: 1; }
+}

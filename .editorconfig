@@ -1,0 +1,30 @@
+# EditorConfig — coerenza di base tra editor/IDE per chiunque tocchi il repo.
+# https://editorconfig.org
+# Additivo e non vincolante: nessun hook, nessuna build lo legge. Serve solo a
+# far concordare gli editor su encoding, fine riga e indentazione.
+root = true
+
+# Default per tutti i file testuali.
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+# Frontend e file di configurazione testuali: 2 spazi (gia' lo standard del repo).
+[*.{ts,tsx,js,jsx,json,css,md,html,yml,yaml}]
+indent_size = 2
+
+# Python: 4 spazi (PEP 8).
+[*.py]
+indent_size = 4
+
+# Markdown: due spazi a fine riga sono un a-capo voluto, non li tocchiamo.
+[*.md]
+trim_trailing_whitespace = false
+
+# Script PowerShell: CRLF su Windows (coerente con .gitattributes).
+[*.{ps1,psm1,psd1}]
+end_of_line = crlf

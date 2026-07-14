@@ -1,0 +1,262 @@
+diff --git a/backend/app/routers/subtitles.py b/backend/app/routers/subtitles.py
+index ef0c998..56a722e 100644
+--- a/backend/app/routers/subtitles.py
++++ b/backend/app/routers/subtitles.py
+@@ -35,8 +35,11 @@ def replace_subtitles(video_id: str, body: SubtitlesReplace, db: Session = Depen
+     # I word-timestamp (karaoke) sopravvivono al salvataggio: se una caption
+     # rientra con gli stessi tempi e lo stesso testo, eredita le sue parole.
+     # Solo le caption realmente modificate nel testo perdono il karaoke.
++    # La chiave usa round(_, 3), la STESSA precisione con cui i segmenti sono
++    # salvati sotto (§9): a round(_, 2) due caption vicine (es. 1.234 e 1.238)
++    # collidevano sulla stessa chiave e una perdeva il karaoke.
+     existing: dict[tuple[float, float], tuple[str, list | None]] = {
+-        (round(s.start, 2), round(s.end, 2)): (s.text, s.words)
++        (round(s.start, 3), round(s.end, 3)): (s.text, s.words)
+         for s in video.segments
+     }
+ 
+@@ -44,10 +47,20 @@ def replace_subtitles(video_id: str, body: SubtitlesReplace, db: Session = Depen
+         (s for s in body.segments if s.text.strip() and s.end > s.start),
+         key=lambda s: s.start,
+     )
++    # Guardia perdita-dati (§9): se il client ha inviato dei segmenti ma sono
++    # TUTTI degeneri (testo vuoto o end<=start), NON svuotare in silenzio i
++    # sottotitoli esistenti — è quasi certo un bug o un edit sbagliato. Per
++    # svuotare davvero i sottotitoli il client invia una lista vuota ([]), che
++    # resta un'operazione valida.
++    if body.segments and not segs:
++        raise HTTPException(
++            422,
++            "Tutti i segmenti inviati sono vuoti o hanno durata nulla: per "
++            "svuotare i sottotitoli invia una lista vuota.")
+     db.execute(delete(SubtitleSegment).where(SubtitleSegment.video_id == video_id))
+     for i, s in enumerate(segs):
+         text = s.text.strip()
+-        prev = existing.get((round(s.start, 2), round(s.end, 2)))
++        prev = existing.get((round(s.start, 3), round(s.end, 3)))
+         words = prev[1] if prev and prev[0] == text else None
+         db.add(SubtitleSegment(video_id=video_id, idx=i,
+                                start=round(s.start, 3), end=round(s.end, 3),
+diff --git a/backend/app/routers/videos.py b/backend/app/routers/videos.py
+index 21c6a6a..b6d5357 100644
+--- a/backend/app/routers/videos.py
++++ b/backend/app/routers/videos.py
+@@ -130,6 +130,13 @@ def list_videos(status: str | None = None, db: Session = Depends(get_db)):
+     # select(Video) trascinerebbe TUTTI i segmenti di TUTTI i video in una query
+     # extra. Qui il conteggio arriva dall'aggregata sotto e video_to_out non tocca
+     # v.segments: sopprimiamo il caricamento (ORDER BY created_at usa l'indice).
++    # ?status= validato contro l'enum (§9): un valore inesistente NON deve
++    # ritornare in silenzio una lista vuota (indistinguibile da "nessun video in
++    # quello stato"), ma segnalare l'errore con gli stati ammessi.
++    if status and status not in VideoStatus.ALL:
++        raise HTTPException(
++            422,
++            f"status non valido: {status!r}. Ammessi: {', '.join(VideoStatus.ALL)}")
+     q = select(Video).options(noload(Video.segments)).order_by(Video.created_at.desc())
+     if status:
+         q = q.where(Video.status == status)
+diff --git a/backend/tests/test_qa_subtitles_preserve.py b/backend/tests/test_qa_subtitles_preserve.py
+index 36ebe88..539bcc2 100644
+--- a/backend/tests/test_qa_subtitles_preserve.py
++++ b/backend/tests/test_qa_subtitles_preserve.py
+@@ -1,18 +1,20 @@
+ """QA API test: PUT/GET /api/videos/{id}/subtitles (routers/subtitles.py).
+ 
+-Logica chiave MAI testata prima: la PUT preserva i word-timestamp (karaoke)
+-SOLO per i segmenti rientrati con (round(start,2), round(end,2), text)
+-invariati; ogni segmento realmente modificato (testo o tempi oltre il round a
+-2 decimali) perde le words. Tutto OFFLINE via TestClient, nessun ffmpeg.
++Logica chiave: la PUT preserva i word-timestamp (karaoke) SOLO per i segmenti
++rientrati con (round(start,3), round(end,3), text) invariati; ogni segmento
++realmente modificato (testo o tempi oltre il round a 3 decimali) perde le words.
++La chiave a 3 decimali (§9) allinea la precisione a quella dello storage ed
++elimina le collisioni che col round a 2 facevano perdere il karaoke. Tutto
++OFFLINE via TestClient, nessun ffmpeg.
+ 
+ Ambiente isolato configurato PRIMA di importare l'app (stesso preambolo dei
+ moduli esistenti: setdefault non sovrascrive nulla di gia' impostato, quindi
+ in suite completa vincono le env del primo modulo importato — per questo a
+ runtime si usano SEMPRE i percorsi di get_settings(), mai _TMP).
+ 
+-Tutti i test sono VERDI: i punti sottili (collisione delle chiavi dopo il
+-round a 2 decimali, filtro silenzioso dei segmenti degeneri) sono documentati
+-come CHARACTERIZATION del comportamento reale, non asserzioni di correttezza.
++Include i test delle decisioni §9: chiave a 3 decimali senza collisione, e
++guardia 422 sulla PUT di soli segmenti degeneri (niente svuotamento silenzioso;
++la lista vuota resta un clear valido).
+ """
+ import os
+ import tempfile
+@@ -167,13 +169,13 @@ def test_put_shifted_times_beyond_round2_drops_words():
+     assert body[1]["words"] == W2
+ 
+ 
+-def test_put_shift_within_round2_keeps_words():
+-    # controprova: uno shift SOTTO la tolleranza del round a 2 decimali
+-    # (0.0 -> 0.001, round -> 0.0) mantiene la stessa chiave e conserva le words.
++def test_put_shift_within_round3_keeps_words():
++    # controprova: uno shift SOTTO la tolleranza del round a 3 decimali
++    # (0.0 -> 0.0001, round -> 0.0) mantiene la stessa chiave e conserva le words.
+     vid = _seed_two_segments()
+     headers = _auth()
+     r = _put(vid, [
+-        {"start": 0.001, "end": 1.5, "text": "ciao a tutti"},
++        {"start": 0.0001, "end": 1.5, "text": "ciao a tutti"},
+         {"start": 2.0, "end": 3.0, "text": "secondo segmento"},
+     ], headers)
+     assert r.status_code == 200
+@@ -181,16 +183,14 @@ def test_put_shift_within_round2_keeps_words():
+ 
+ 
+ # --------------------------------------------------------------------------- #
+-# 4. CHARACTERIZATION: collisione della chiave dopo round(...,2)
++# 4. §9 (FIX): con la chiave a round(...,3) NON c'e' piu' collisione
+ # --------------------------------------------------------------------------- #
+-def test_put_round2_key_collision_last_segment_wins_characterization():
+-    # QA CHARACTERIZATION (subtitles.py:38-41): la mappa `existing` e' indicizzata
+-    # per (round(start,2), round(end,2)). Due segmenti REALI distinti a DB —
+-    # start 1.001 e 1.004, end 2.0 e 2.004, stesso testo — collidono sulla stessa
+-    # chiave (1.0, 2.0): nella dict-comprehension l'ULTIMO (idx piu' alto) vince
+-    # e sovrascrive il primo. Alla PUT identica, ENTRAMBI i segmenti pescano la
+-    # stessa entry: il primo PERDE le proprie words WA ed EREDITA le WB del
+-    # secondo. Comportamento reale documentato, non necessariamente corretto.
++def test_put_round3_key_no_collision_each_keeps_own_words():
++    # §9 (decisione presa): la mappa `existing` usa ora (round(start,3),
++    # round(end,3)), la STESSA precisione con cui i segmenti sono salvati. Due
++    # segmenti distinti a 3 decimali — start 1.001 e 1.004, end 2.0 e 2.004 —
++    # NON collidono piu': rientrando identici, ciascuno riottiene le PROPRIE
++    # words invece di ereditare quelle del collidente (com'era col round a 2).
+     WA = [[1.0, 1.5, "prima"], [1.5, 2.0, "voce"]]
+     WB = [[1.0, 1.5, "seconda"], [1.5, 2.0, "voce"]]
+     vid = _make_video(segments=[
+@@ -205,10 +205,9 @@ def test_put_round2_key_collision_last_segment_wins_characterization():
+     assert r.status_code == 200
+     body = r.json()
+     assert len(body) == 2
+-    # il primo segmento NON riottiene le sue WA: eredita le WB del collidente
+-    assert body[0]["words"] == WB
++    # niente collisione: ciascun segmento conserva le proprie words
++    assert body[0]["words"] == WA
+     assert body[1]["words"] == WB
+-    assert all(s["words"] != WA for s in body)  # WA sono andate perse
+ 
+ 
+ # --------------------------------------------------------------------------- #
+@@ -253,10 +252,10 @@ def test_put_segment_end_before_start_silently_dropped_characterization():
+     assert [s["text"] for s in body] == ["valido"]  # il degenere sparisce senza errore
+ 
+ 
+-def test_put_blank_text_segment_silently_dropped_characterization():
+-    # QA CHARACTERIZATION: testo vuoto/solo spazi non produce errore: il router
+-    # filtra `s.text.strip()` (subtitles.py:44) e il segmento sparisce dalla
+-    # risposta e dal DB. Una PUT di soli segmenti vuoti svuota i sottotitoli.
++def test_put_blank_text_segment_silently_dropped():
++    # Un segmento a testo vuoto/solo spazi viene filtrato in silenzio
++    # (subtitles.py, `s.text.strip()`) FINCHE' resta almeno un segmento valido:
++    # qui il secondo sopravvive, quindi 200 senza il degenere.
+     vid = _seed_two_segments()
+     headers = _auth()
+     r = _put(vid, [
+@@ -270,6 +269,34 @@ def test_put_blank_text_segment_silently_dropped_characterization():
+     assert body[0]["idx"] == 0         # re-indicizzato da zero dopo il filtro
+ 
+ 
++def test_put_all_degenerate_segments_rejected_422():
++    # §9 (decisione presa): se il client invia segmenti ma sono TUTTI degeneri
++    # (testo vuoto o end<=start), la PUT e' rifiutata con 422 e i sottotitoli
++    # esistenti restano INTATTI (niente svuotamento silenzioso da un bug/edit).
++    vid = _seed_two_segments()
++    headers = _auth()
++    r = _put(vid, [
++        {"start": 5.0, "end": 3.0, "text": "inverso"},   # end<start: degenere
++        {"start": 0.0, "end": 1.5, "text": "   "},        # testo vuoto: degenere
++    ], headers)
++    assert r.status_code == 422
++    # i sottotitoli originali NON sono stati toccati
++    g = _get(vid, headers)
++    assert [s["text"] for s in g.json()] == ["ciao a tutti", "secondo segmento"]
++    assert [s["words"] for s in g.json()] == [W1, W2]
++
++
++def test_put_empty_list_clears_subtitles():
++    # controprova: una lista VUOTA e' un clear legittimo (200, sottotitoli
++    # svuotati) — la guardia scatta solo su segmenti inviati ma tutti degeneri.
++    vid = _seed_two_segments()
++    headers = _auth()
++    r = _put(vid, [], headers)
++    assert r.status_code == 200
++    assert r.json() == []
++    assert _get(vid, headers).json() == []
++
++
+ # --------------------------------------------------------------------------- #
+ # 6. GET: lista vuota e 404
+ # --------------------------------------------------------------------------- #
+diff --git a/backend/tests/test_qa_upload_api.py b/backend/tests/test_qa_upload_api.py
+index cc53428..5217196 100644
+--- a/backend/tests/test_qa_upload_api.py
++++ b/backend/tests/test_qa_upload_api.py
+@@ -229,16 +229,15 @@ def test_list_videos_filters_by_status():
+     assert all(v["status"] == "uploaded" for v in body)
+ 
+ 
+-def test_list_videos_unknown_status_characterization():
+-    # CHARACTERIZATION: `status` e' una stringa libera (nessun Literal/enum), un
+-    # valore inesistente non e' rifiutato ma semplicemente non matcha nulla:
+-    # oggi risponde 200 con lista vuota (non 422).
++def test_list_videos_unknown_status_rejected():
++    # §9 (decisione presa): uno status inesistente NON ritorna in silenzio una
++    # lista vuota (indistinguibile da "nessun video in quello stato") ma 422 con
++    # l'elenco degli stati ammessi.
+     _make_video(original_name="qualcosa.mp4", status=VideoStatus.UPLOADED)
+     r = client.get("/api/videos", params={"status": "stato-che-non-esiste"},
+                    headers=_auth())
+-    assert r.status_code in (200, 422)
+-    if r.status_code == 200:
+-        assert r.json() == []
++    assert r.status_code == 422
++    assert "uploaded" in r.json()["detail"]
+ 
+ 
+ def test_get_video_random_id_404():
+diff --git a/frontend/src/format.qa.test.ts b/frontend/src/format.qa.test.ts
+index 82725c1..48bbd7a 100644
+--- a/frontend/src/format.qa.test.ts
++++ b/frontend/src/format.qa.test.ts
+@@ -103,10 +103,9 @@ describe("fmtDate", () => {
+     expect(fmtDate("2026-07-09T15:30:00")).toMatch(/\d{2}\/\d{2}.*\d{2}:\d{2}/);
+   });
+ 
+-  // CHARACTERIZATION QA: nessuna guardia sull'input — una stringa non parsabile
+-  // produce "Invalid Date Invalid Date" invece di un fallback. Comportamento
+-  // attuale documentato, la correttezza è una decisione di design.
+-  it("characterization: input invalido produce testo 'Invalid'", () => {
+-    expect(fmtDate("non-una-data")).toContain("Invalid");
++  // §9 (decisione presa): una stringa non parsabile produce il fallback "-"
++  // invece di "Invalid Date", coerente con fmtTime.
++  it("§9: input invalido produce fallback '-'", () => {
++    expect(fmtDate("non-una-data")).toBe("-");
+   });
+ });
+diff --git a/frontend/src/format.ts b/frontend/src/format.ts
+index c48e362..3b1079a 100644
+--- a/frontend/src/format.ts
++++ b/frontend/src/format.ts
+@@ -26,6 +26,8 @@ export function parseTime(v: string): number | null {
+ }
+ 
+ export function fmtSize(bytes: number): string {
++  // guardia (§9): byte non finiti o negativi non hanno senso -> "-"
++  if (!isFinite(bytes) || bytes < 0) return "-";
+   if (bytes >= 1e9) return (bytes / 1e9).toFixed(2) + " GB";
+   if (bytes >= 1e6) return (bytes / 1e6).toFixed(1) + " MB";
+   return Math.round(bytes / 1e3) + " KB";
+@@ -33,6 +35,8 @@ export function fmtSize(bytes: number): string {
+ 
+ export function fmtDate(iso: string): string {
+   const d = new Date(iso);
++  // guardia (§9): stringa non parsabile -> "-" invece di "Invalid Date"
++  if (isNaN(d.getTime())) return "-";
+   return d.toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit" }) +
+     " " + d.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
+ }

@@ -1,0 +1,89 @@
+name: CI
+
+# Gate di qualità su ogni push e PR: typecheck + test + build del frontend e
+# suite backend veloce (senza ffmpeg). Lo smoke E2E (richiede ffmpeg, va isolato
+# per via di get_settings() @lru_cache) gira in un job separato.
+# Nota: il deploy sullo Space HF è un workflow a parte (deploy.yml, solo su master).
+
+on:
+  push:
+  pull_request:
+
+# annulla run precedenti sullo stesso ref quando ne parte una nuova
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: Typecheck
+        run: npx tsc --noEmit
+      - name: Lint (ESLint)
+        # --max-warnings 0: le regole di correttezza (hooks/exhaustive-deps,
+        # no-unused-vars) restano "warn" nella config così in dev sono visibili
+        # senza bloccare, ma in CI qualunque warning fa fallire il gate.
+        run: npm run lint -- --max-warnings 0
+      - name: Test
+        run: npx vitest run
+      - name: Build
+        run: npm run build
+
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: backend/requirements.txt
+      - name: Install deps
+        run: pip install -r requirements.txt pytest httpx ruff
+      - name: Static analysis (ruff, advisory)
+        # Non bloccante: il set di regole è di correttezza, ma il codebase ha
+        # ancora qualche segnalazione pre-esistente (raise ... from, zip strict,
+        # import/var inutilizzati). Le annotazioni restano visibili sulla PR senza
+        # bloccare il merge; si potrà rendere bloccante dopo la bonifica.
+        continue-on-error: true
+        run: ruff check app tests --output-format=github
+      - name: Test (veloce, senza ffmpeg)
+        run: python -m pytest tests/ -q --ignore=tests/test_smoke.py
+
+  backend-e2e:
+    # Smoke E2E reale: richiede ffmpeg e va eseguito ISOLATO (get_settings()
+    # @lru_cache). Job a parte così non rallenta il gate principale.
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: backend/requirements.txt
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Install deps
+        run: pip install -r requirements.txt pytest httpx
+      - name: Smoke E2E (isolato, con ffmpeg)
+        run: python -m pytest tests/test_smoke.py -q

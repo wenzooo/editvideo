@@ -1,0 +1,438 @@
+/* ============================================================
+   Animazioni & micro-interazioni (stile Watch Dogs / ctOS)
+   Iterazione 2.
+
+   Principi:
+   - Si animano SOLO transform / opacity / box-shadow / background-position
+     (compositor-friendly, niente layout thrash, target 60fps).
+   - Effetti discreti e "tecnici": scanline, sweep orizzontali, corner
+     brackets, micro-glitch, glow "vivo". Mai invasivi.
+   - Gli overlay decorativi (::before/::after) hanno SEMPRE
+     pointer-events:none e restano contenuti nell'elemento.
+   - Ogni animazione degrada con prefers-reduced-motion:reduce
+     (tutte le override sono raccolte IN FONDO al file).
+   ============================================================ */
+
+
+/* ============================================================
+   0. KEYFRAMES CONDIVISI
+   ============================================================ */
+
+/* ingresso morbido: fade + micro-rise (sezioni, card, righe nuove) */
+@keyframes fx-rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* sweep di luce orizzontale (scanline ctOS) — muove solo background-position */
+@keyframes fx-sweep-x {
+  from { background-position: -40% 0; }
+  to   { background-position: 140% 0; }
+}
+
+/* respiro glow lento (opacity di un layer d'ombra statico → economico) */
+@keyframes fx-breathe {
+  0%, 100% { opacity: .15; }
+  50%      { opacity: .70; }
+}
+
+/* shimmer diagonale "in corso" (banda che attraversa) */
+@keyframes fx-shimmer {
+  0%        { transform: translateX(-160%) skewX(-12deg); }
+  60%, 100% { transform: translateX(320%)  skewX(-12deg); }
+}
+
+/* flusso barra di avanzamento — solo background-position */
+@keyframes fx-progress-flow {
+  from { background-position: -60% 0, 0 0; }
+  to   { background-position: 160% 0, 0 0; }
+}
+
+/* ping "scan" radar per il pallino job (box-shadow che si espande + svanisce) */
+@keyframes fx-ping {
+  0%   { box-shadow: 0 0 0 0 rgba(255, 216, 77, .55); opacity: .9; }
+  70%  { box-shadow: 0 0 0 7px rgba(255, 216, 77, 0);  opacity: 0; }
+  100% { box-shadow: 0 0 0 0 rgba(255, 216, 77, 0);    opacity: 0; }
+}
+
+
+/* ============================================================
+   1. UTILITY RIUTILIZZABILI (per usi futuri nel markup)
+   ============================================================ */
+
+/* .fx-fade-up — ingresso leggero di una sezione/riga */
+.fx-fade-up { animation: fx-rise .32s ease both; }
+
+/* .fx-scan — overlay con sweep luminoso orizzontale continuo */
+.fx-scan { position: relative; overflow: hidden; }
+.fx-scan::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(0, 229, 199, .12), transparent);
+  background-size: 40% 100%; background-repeat: no-repeat; background-position: -40% 0;
+  animation: fx-sweep-x 2.6s linear infinite;
+}
+
+/* .fx-hud-corners — parentesi angolari che entrano all'hover */
+.fx-hud-corners { position: relative; }
+.fx-hud-corners::before,
+.fx-hud-corners::after {
+  content: ""; position: absolute; width: 10px; height: 10px;
+  border: 1.5px solid var(--accent); opacity: 0; pointer-events: none;
+  transition: opacity .18s ease, transform .18s ease;
+}
+.fx-hud-corners::before { top: 4px;  left: 4px;  border-right: none; border-bottom: none; transform: translate(-3px, -3px); }
+.fx-hud-corners::after  { bottom: 4px; right: 4px; border-left: none;  border-top: none;   transform: translate(3px, 3px); }
+.fx-hud-corners:hover::before,
+.fx-hud-corners:hover::after { opacity: .9; transform: translate(0, 0); }
+
+
+/* ============================================================
+   2. TOPBAR + BRAND
+   ------------------------------------------------------------
+   - linea di scansione sottile lungo il bordo inferiore topbar
+   - micro-glitch + scan MOLTO discreto sul brand all'hover
+   ============================================================ */
+
+/* topbar è già position:sticky (contesto per il ::after) */
+.topbar::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 1px;
+  pointer-events: none; opacity: .45;
+  background: linear-gradient(90deg, transparent, rgba(0, 229, 199, .8), transparent);
+  background-size: 35% 100%; background-repeat: no-repeat; background-position: -40% 0;
+  animation: fx-sweep-x 5s linear infinite;
+}
+
+.brand { position: relative; }
+/* jitter sub-pixel (solo transform) */
+.brand:hover { animation: fx-brand-jitter .42s steps(4, jump-none) 1; }
+@keyframes fx-brand-jitter {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  25%      { transform: translate3d(-0.7px, 0, 0); }
+  50%      { transform: translate3d(0.6px, 0, 0); }
+  75%      { transform: translate3d(-0.35px, 0, 0); }
+}
+/* passata di scansione sul testo brand (solo opacity + background-position) */
+.brand::after {
+  content: ""; position: absolute; top: 0; left: -2px; right: -2px; height: 100%;
+  pointer-events: none; opacity: 0;
+  background: linear-gradient(90deg, transparent, rgba(0, 229, 199, .22), transparent);
+  background-size: 60% 100%; background-repeat: no-repeat; background-position: -60% 0;
+}
+.brand:hover::after { animation: fx-brand-scan .5s ease 1; }
+@keyframes fx-brand-scan {
+  0%   { opacity: 0; background-position: -60% 0; }
+  30%  { opacity: 1; }
+  100% { opacity: 0; background-position: 140% 0; }
+}
+
+
+/* ============================================================
+   3. BOTTONI
+   ------------------------------------------------------------
+   - hover: sollevamento -1px; press: rientro rapido
+   - .primary: sweep di luce che attraversa il bottone all'hover
+   ============================================================ */
+
+/* estende la transition base di styles.css includendo transform */
+.btn {
+  transition: background .15s, border-color .15s, box-shadow .15s, color .15s,
+              transform .12s cubic-bezier(.2, .7, .2, 1);
+}
+.btn:hover:not(:disabled)   { transform: translateY(-1px); }
+.btn:not(:disabled):active  { transform: translateY(0) scale(.98); transition-duration: .05s; }
+
+/* sweep di luce sul bottone primario */
+.btn.primary { position: relative; overflow: hidden; }
+.btn.primary::before {
+  content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 40%;
+  pointer-events: none; opacity: 0;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, .38), transparent);
+  transform: translateX(-180%) skewX(-12deg);
+}
+.btn.primary:hover:not(:disabled)::before { animation: fx-btn-shine .6s ease 1; }
+@keyframes fx-btn-shine {
+  0%   { transform: translateX(-180%) skewX(-12deg); opacity: 0; }
+  18%  { opacity: 1; }
+  100% { transform: translateX(320%)  skewX(-12deg); opacity: 0; }
+}
+
+
+/* ============================================================
+   4. CHIP / FILTRI
+   ------------------------------------------------------------
+   - feedback hover morbido + micro-lift
+   - "pop" di glow quando lo stato diventa attivo
+   ============================================================ */
+
+.chip {
+  transition: color .15s, border-color .15s, background .15s, box-shadow .15s,
+              transform .12s ease;
+}
+.chip:hover:not(.active) { color: var(--text); border-color: #2c3b54; transform: translateY(-1px); }
+.chip:not(.active):active { transform: translateY(0); }
+.chip.active { animation: fx-chip-pop .3s ease 1; }
+@keyframes fx-chip-pop {
+  0%   { box-shadow: 0 0 0 0 rgba(0, 229, 199, 0); }
+  40%  { box-shadow: 0 0 12px 2px rgba(0, 229, 199, .35); }
+  100% { box-shadow: 0 0 10px rgba(0, 229, 199, .15); }
+}
+
+
+/* ============================================================
+   5. BADGE DI STATO
+   ------------------------------------------------------------
+   - ready / exported: glow "respiro" lento (segnala pronto/fatto)
+   - transcribing / exporting: shimmer che indica "in corso"
+   ============================================================ */
+
+/* respiro: ombra STATICA su un ::after, si anima solo l'opacity (economico
+   anche con molte righe a schermo). L'ombra base resta da styles.css. */
+.badge-ready, .badge-exported { position: relative; }
+.badge-ready::after, .badge-exported::after {
+  content: ""; position: absolute; inset: 0; border-radius: inherit;
+  pointer-events: none; opacity: 0;
+  animation: fx-breathe 3.2s ease-in-out infinite;
+}
+.badge-ready::after    { box-shadow: 0 0 12px 1px rgba(47, 230, 160, .55); }
+.badge-exported::after { box-shadow: 0 0 12px 1px rgba(0, 229, 199, .55); }
+
+/* shimmer "in corso": banda diagonale che attraversa il badge */
+.badge-transcribing, .badge-exporting { position: relative; overflow: hidden; }
+.badge-transcribing::before, .badge-exporting::before {
+  content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 45%;
+  pointer-events: none;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, .18), transparent);
+  transform: translateX(-160%) skewX(-12deg);
+  animation: fx-shimmer 1.9s ease-in-out infinite;
+}
+
+
+/* ============================================================
+   6. BARRE DI AVANZAMENTO
+   ------------------------------------------------------------
+   Gradiente + sheen che scorre = "lavoro in corso".
+   Si tocca solo background-*: la transition width .4s di styles.css resta.
+   ============================================================ */
+
+.progress > div {
+  background-image:
+    linear-gradient(100deg, transparent 20%, rgba(255, 255, 255, .22) 50%, transparent 80%),
+    linear-gradient(90deg, #00bfae, var(--accent));
+  background-size: 220% 100%, 100% 100%;
+  background-repeat: no-repeat;
+  background-position: -60% 0, 0 0;
+  animation: fx-progress-flow 1.5s linear infinite;
+  transition: width .4s ease;
+}
+/* upload totale (verde) */
+.progress.total > div {
+  background-image:
+    linear-gradient(100deg, transparent 20%, rgba(255, 255, 255, .22) 50%, transparent 80%),
+    linear-gradient(90deg, #24c98a, var(--green));
+  background-size: 220% 100%, 100% 100%;
+  background-repeat: no-repeat;
+  background-position: -60% 0, 0 0;
+  animation: fx-progress-flow 1.5s linear infinite;
+}
+
+
+/* ============================================================
+   7. JOBS BAR + PULSE
+   ------------------------------------------------------------
+   - il pallino diventa uno "scan" ctOS (ping radar)
+   - la jobsbar mostra una sweep-line sottile quando ci sono job
+   ============================================================ */
+
+/* niente overflow:hidden qui: il ::after resta pieno-larghezza e
+   muove solo background-position, quindi il testo non viene tagliato */
+.jobsbar { position: relative; }
+.jobsbar::after {
+  content: ""; position: absolute; left: 0; right: 0; top: 0; height: 1px;
+  pointer-events: none; opacity: .55;
+  background: linear-gradient(90deg, transparent, rgba(0, 229, 199, .7), transparent);
+  background-size: 45% 100%; background-repeat: no-repeat; background-position: -50% 0;
+  animation: fx-sweep-x 3.4s linear infinite;
+}
+
+/* il .pulse mantiene il suo blink base (styles.css) + anello "scan" */
+.pulse { position: relative; }
+.pulse::after {
+  content: ""; position: absolute; inset: 0; border-radius: 50%;
+  pointer-events: none; box-shadow: 0 0 0 0 rgba(255, 216, 77, 0);
+  animation: fx-ping 1.8s cubic-bezier(.2, .6, .3, 1) infinite;
+}
+
+
+/* ============================================================
+   8. MENU DROPDOWN
+   ------------------------------------------------------------
+   Riga-accento che "scorre in" in cima all'apertura del popover.
+   (menu-in resta definito in menu.css: qui NON lo tocchiamo)
+   ============================================================ */
+
+.menu-pop-inner { position: relative; }
+.menu-pop-inner::before {
+  content: ""; position: absolute; top: 0; left: 6px; right: 6px; height: 1px;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  transform: scaleX(0); transform-origin: center;
+  animation: fx-menu-accent .4s ease .04s both;
+}
+@keyframes fx-menu-accent { to { transform: scaleX(1); } }
+
+
+/* ============================================================
+   9. LISTE / SELEZIONI (reveal accent fluido)
+   ------------------------------------------------------------
+   - riga tabella hover: barra laterale accent che "entra"
+   - .sub-row.active: glow bordo morbido
+   - .style-card.selected: glow; hover con corner brackets
+   ============================================================ */
+
+/* barra laterale sul primo td della riga (position:relative non altera il layout) */
+.videos tbody td:first-child { position: relative; }
+.videos tbody td:first-child::before {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px;
+  pointer-events: none; background: var(--accent);
+  box-shadow: 0 0 8px rgba(0, 229, 199, .5);
+  transform: scaleY(0); transform-origin: center;
+  transition: transform .2s ease;
+}
+.videos tbody tr:hover td:first-child::before { transform: scaleY(1); }
+
+/* sub-row: crossfade morbido dello stato attivo (no pop: cambia durante il play) */
+.sub-row { transition: border-color .18s ease, box-shadow .18s ease; }
+.sub-row.active { box-shadow: inset 2px 0 0 var(--accent), 0 0 12px rgba(0, 229, 199, .10); }
+
+/* style-card: lift + glow selezione + corner brackets all'hover */
+.style-card {
+  position: relative;
+  transition: border-color .15s, box-shadow .15s, transform .12s ease;
+}
+.style-card:hover { transform: translateY(-1px); border-color: #2c3b54; }
+.style-card.selected { box-shadow: 0 0 0 1px var(--accent), 0 0 14px rgba(0, 229, 199, .16); }
+.style-card.selected:hover { transform: translateY(-1px); }
+.style-card::before, .style-card::after {
+  content: ""; position: absolute; width: 9px; height: 9px;
+  border: 1.5px solid var(--accent); opacity: 0; pointer-events: none;
+  transition: opacity .16s ease, transform .16s ease;
+}
+.style-card::before { top: 5px; left: 5px;  border-right: none; border-bottom: none; transform: translate(-2px, -2px); }
+.style-card::after  { bottom: 5px; right: 5px; border-left: none;  border-top: none;   transform: translate(2px, 2px); }
+.style-card:hover::before, .style-card:hover::after { opacity: .85; transform: translate(0, 0); }
+
+
+/* ============================================================
+   10. TIMELINE
+   ------------------------------------------------------------
+   - playhead: glow pulsante "vivo"
+   - handle: glow all'hover
+   ============================================================ */
+
+.tl-playhead { animation: fx-playhead-glow 2s ease-in-out infinite; }
+@keyframes fx-playhead-glow {
+  0%, 100% { box-shadow: 0 0 4px rgba(0, 229, 199, .5); }
+  50%      { box-shadow: 0 0 10px 1px rgba(0, 229, 199, .85); }
+}
+
+.tl-handle { transition: background .15s ease, box-shadow .15s ease; }
+.tl-handle:hover { box-shadow: 0 0 16px rgba(0, 229, 199, .6); }
+
+
+/* ============================================================
+   11. PAGINE / ATTESA / LOGIN
+   ------------------------------------------------------------
+   - .page: ingresso leggero delle sezioni
+   - .page-loading: leggero "respiro" durante l'attesa
+   (il login mini-terminale e' VOLUTAMENTE statico: solo il blink del
+   cursore a blocco, definito in styles.css)
+   ============================================================ */
+
+.page { animation: fx-rise .38s ease both; }
+
+.page-loading { animation: fx-dim-pulse 1.6s ease-in-out infinite; }
+@keyframes fx-dim-pulse { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
+
+
+/* ============================================================
+   12. prefers-reduced-motion: reduce  →  DISATTIVA TUTTO
+   ------------------------------------------------------------
+   Neutralizza animazioni/transizioni introdotte qui (e i movimenti
+   continui preesistenti: blink del pulse e caret del login), lasciando
+   gli elementi nello stato finale visibile.
+   ============================================================ */
+
+@media (prefers-reduced-motion: reduce) {
+
+  /* ingressi/utility → stato visibile, nessun movimento */
+  .fx-fade-up,
+  .page { animation: none; }
+
+  .fx-scan::after,
+  .fx-hud-corners::before,
+  .fx-hud-corners::after { animation: none; transition: none; }
+
+  /* topbar / brand */
+  .topbar::after { animation: none; opacity: 0; }
+  .brand:hover { animation: none; }
+  .brand::after,
+  .brand:hover::after { animation: none; opacity: 0; }
+
+  /* bottoni: nessun lift/sweep */
+  .btn {
+    transition: background .15s, border-color .15s, box-shadow .15s, color .15s;
+  }
+  .btn:hover:not(:disabled),
+  .btn:not(:disabled):active { transform: none; }
+  .btn.primary::before,
+  .btn.primary:hover:not(:disabled)::before { animation: none; opacity: 0; }
+
+  /* chip */
+  .chip { transition: color .15s, border-color .15s, background .15s, box-shadow .15s; }
+  .chip:hover:not(.active),
+  .chip:not(.active):active { transform: none; }
+  .chip.active { animation: none; }
+
+  /* badge: niente respiro/shimmer (resta l'ombra statica di styles.css) */
+  .badge-ready::after,
+  .badge-exported::after { animation: none; opacity: 0; }
+  .badge-transcribing::before,
+  .badge-exporting::before { animation: none; opacity: 0; }
+
+  /* barre di avanzamento: gradiente statico, nessuno scorrimento */
+  .progress > div {
+    animation: none;
+    background-image: linear-gradient(90deg, #00bfae, var(--accent));
+    background-size: auto; background-position: 0 0;
+  }
+  .progress.total > div {
+    animation: none;
+    background-image: linear-gradient(90deg, #24c98a, var(--green));
+    background-size: auto; background-position: 0 0;
+  }
+
+  /* jobs bar / pulse (anche il blink preesistente) */
+  .jobsbar::after { animation: none; opacity: 0; }
+  .pulse { animation: none; }
+  .pulse::after { animation: none; opacity: 0; }
+
+  /* menu dropdown: riga-accento visibile ma statica */
+  .menu-pop-inner::before { animation: none; transform: scaleX(1); }
+
+  /* liste / selezioni: reveal istantaneo, nessun movimento */
+  .videos tbody td:first-child::before { transition: none; }
+  .sub-row { transition: none; }
+  .style-card { transition: none; }
+  .style-card:hover,
+  .style-card.selected:hover { transform: none; }
+  .style-card::before,
+  .style-card::after { transition: none; }
+
+  /* timeline */
+  .tl-playhead { animation: none; }
+  .tl-handle { transition: none; }
+
+  /* attese / login (il cursore a blocco del mini-terminale resta fisso) */
+  .page-loading { animation: none; opacity: 1; }
+  .login-cursor { animation: none; }
+}

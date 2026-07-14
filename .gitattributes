@@ -1,0 +1,44 @@
+# Normalizzazione fine riga (EOL) e marcatura dei file binari.
+#
+# Coerente con la scelta di progetto core.autocrlf=false: e' qui, nel repo, che
+# si dichiara l'EOL di ogni tipo di file, cosi' il comportamento e' identico su
+# ogni macchina a prescindere dalla config git locale.
+
+# Default: git riconosce da solo testo/binario; il testo va a LF nel repo.
+* text=auto eol=lf
+
+# --- Testo con EOL forzato ------------------------------------------------
+# Script PowerShell/batch: CRLF (convenzione Windows).
+*.ps1  text eol=crlf
+*.psm1 text eol=crlf
+*.psd1 text eol=crlf
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+
+# Shell script: sempre LF (altrimenti non partono su Linux/HF Space).
+*.sh text eol=lf
+
+# --- Binari (niente normalizzazione EOL ne' diff testuale) ----------------
+# Video / audio
+*.mp4  binary
+*.mov  binary
+*.webm binary
+*.wav  binary
+*.mp3  binary
+*.m4a  binary
+# Immagini / icone
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.webp binary
+*.ico  binary
+# Font
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+# Archivi / db / modelli
+*.zip binary
+*.gz  binary
+*.db  binary
+*.bin binary

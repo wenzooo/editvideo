@@ -1,0 +1,546 @@
+:root {
+  color-scheme: dark;
+  /* sfondo NERO ASSOLUTO; i pannelli restano leggermente sollevati per leggibilita' */
+  --bg: #000000;
+  --bg-2: #050709;
+  --panel: #0b0f16;
+  --panel-2: #121a26;
+  --input: #090d14;
+  --border: #1b2433;
+  --text: #e8eef7;
+  /* muted alzato leggermente (era #8291a9) per più margine WCAG AA sui
+     pannelli chiari e sul testo piccolo, mantenendo la tinta HUD. */
+  --muted: #8d9cb4;
+  --accent: #00e5c7;
+  --accent-2: #b16cea;
+  --green: #2fe6a0;
+  --yellow: #ffd84d;
+  --red: #ff5c6c;
+  --orange: #ff9e4d;
+  /* UNICO font di tutto il progetto: il monospace di sistema del terminale
+     (ui-monospace = SF Mono su macOS; Cascadia Mono = Windows Terminal;
+     DejaVu/Liberation = terminali Linux). Nessun altro font in UI. */
+  --mono: ui-monospace, "Cascadia Mono", "Cascadia Code", Consolas, "SF Mono", Menlo,
+    "DejaVu Sans Mono", "Liberation Mono", monospace;
+  /* accento ARCOBALENO canonico: CTA primarie, brand, prompt e fili di
+     gradiente. Indipendente da --accent (che resta scelto dall'utente). */
+  --rainbow: linear-gradient(90deg,#ff3b3b,#ff9e00,#ffe600,#38ff8b,#00e5ff,#7a7bff,#ff5cf0,#ff3b3b);
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background-color: #000;              /* nero assoluto, niente gradiente */
+  color: var(--text);
+  /* UI MONOSPACE ovunque (stile terminale). Interlinea un filo più ampia per
+     tenere leggibile il testo lungo reso in mono. */
+  font: 14px/1.55 var(--mono);
+  min-height: 100vh;
+}
+/* i controlli form NON ereditano il font-family di default: forziamo il mono */
+button, input, textarea, select, optgroup { font-family: inherit; }
+h1, h2, h3 { margin: 0; font-weight: 650; font-family: var(--mono); }
+a { color: var(--accent); text-decoration: none; }
+::selection { background: rgba(0, 229, 199, .22); }
+.muted { color: var(--muted); }
+.small { font-size: 12px; }
+.spacer { flex: 1; }
+.error-text { color: var(--red); }
+
+/* ---------- topbar ---------- */
+.topbar {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 20px;
+  background: rgba(10, 14, 20, .86);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; z-index: 10;
+}
+/* filo ARCOBALENO in cima alla topbar (tocco terminale, statico) */
+.topbar::before {
+  content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px;
+  pointer-events: none; background: var(--rainbow);
+}
+.brand {
+  font-family: var(--mono);
+  font-weight: 700; font-size: 15px; letter-spacing: .08em;
+  /* testo ARCOBALENO (clip sui glifi); niente glow ciano dietro */
+  background: var(--rainbow);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent;
+  text-shadow: none;
+}
+/* il cursore a blocco del terminale (crt-on) non eredita il fill trasparente */
+.brand .term-cursor { -webkit-text-fill-color: var(--accent); color: var(--accent); }
+
+/* ---------- topbar: compattazione mobile ----------
+   Su schermo stretto brand + versione + "Esci" devono stare su una riga
+   senza accavallarsi. Il sottotitolo descrittivo è ridondante e va nascosto;
+   "Esci" resta visibile e raggiungibile in un tap (target ≥40px). Sticky
+   invariato. Il desktop non è toccato (solo dentro la media query). */
+@media (max-width: 640px) {
+  .topbar { gap: 10px 8px; padding: 8px 12px; row-gap: 8px; }
+  .topbar > .muted:not(.small) { display: none; }
+  /* niente spacer che spinge: gli elementi vanno a capo in modo ordinato
+     (brand + versione + Statistiche in alto, ⚙/Esci di seguito) */
+  .topbar .spacer { display: none; }
+  .topbar .btn.ghost { min-height: 40px; }
+}
+
+.page { max-width: 1280px; margin: 0 auto; padding: 18px 20px 60px; }
+.page-loading { padding: 60px; text-align: center; color: var(--muted); }
+
+/* ---------- login: mini-terminale ----------
+   Volutamente MINIMALE, come un login da TTY: nero assoluto, testo bianco,
+   niente card/bordi/gradienti. Una riga di banner con cursore a blocco,
+   il prompt "password:" con campo nudo (caret bianco nativo) e l'invio
+   come comando. Il focus resta visibile (outline tratteggiato sulla riga). */
+.login-wrap {
+  display: grid; place-items: center; min-height: 100vh;
+  background: #000; padding: 20px;
+}
+.login-term {
+  width: min(440px, 100%);
+  display: flex; flex-direction: column; gap: 10px;
+  color: #fff; font-size: 14px;
+}
+.login-line { margin: 0; }
+.login-dim { color: #fff; opacity: .55; }
+.login-cursor {
+  display: inline-block; margin-left: 6px;
+  animation: caret-blink 1.2s step-end infinite;
+}
+@keyframes caret-blink { 0%, 55% { opacity: 1; } 56%, 100% { opacity: 0; } }
+.login-field { display: flex; align-items: baseline; gap: 8px; cursor: text; }
+.login-field input {
+  flex: 1; min-width: 0;
+  background: transparent; border: none; border-radius: 0; padding: 0;
+  color: #fff; font: inherit; letter-spacing: .14em;
+  caret-color: #fff;
+}
+/* niente outline sull'input nudo: l'indicatore di focus e' la riga intera */
+.login-field input:focus { outline: none; }
+.login-field:focus-within {
+  outline: 1px dashed rgba(255, 255, 255, .4); outline-offset: 6px;
+}
+.login-enter {
+  align-self: flex-start;
+  background: none; border: none; padding: 2px 0;
+  color: #fff; font: inherit; cursor: pointer;
+}
+.login-enter:hover:not(:disabled), .login-enter:focus-visible { text-decoration: underline; }
+.login-enter:focus-visible { outline: 1px dashed rgba(255, 255, 255, .4); outline-offset: 4px; }
+.login-enter:disabled { opacity: .35; cursor: default; }
+
+/* ---------- login: adattamento mobile ----------
+   Solo dentro la media query: il desktop resta identico.
+   font 16px = niente zoom automatico iOS al focus; invio con target >=44px. */
+@media (max-width: 640px) {
+  .login-term { font-size: 16px; }
+  .login-enter { min-height: 44px; }
+}
+
+/* ---------- bottoni ---------- */
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--border); border-radius: 6px;
+  padding: 8px 14px; font-size: 13px; cursor: pointer;
+  transition: background .15s, border-color .15s, box-shadow .15s, color .15s;
+  text-decoration: none;
+}
+.btn:hover:not(:disabled) { background: #1a2333; border-color: #2c3b54; }
+.btn:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+/* CTA primaria: sfondo ARCOBALENO con testo scuro leggibile; su hover
+   l'arcobaleno scorre (rispetta reduced-motion / motion-off, vedi in fondo) */
+.btn.primary {
+  background: var(--rainbow); background-size: 200% 100%; background-position: 0 0;
+  border-color: transparent; color: #05070b; font-weight: 700;
+}
+.btn.primary:hover:not(:disabled) {
+  box-shadow: 0 0 14px rgba(0, 229, 255, .32);
+  animation: rainbow-slide 2.2s linear infinite;
+}
+.btn.ghost { background: transparent; }
+.btn.danger:hover:not(:disabled) { border-color: var(--red); color: var(--red); }
+.btn.small { padding: 4px 10px; font-size: 12px; border-radius: 4px; }
+.linklike {
+  background: none; border: none; color: var(--accent);
+  cursor: pointer; font-size: inherit; padding: 2px 4px;
+}
+.linklike.danger { color: var(--red); }
+
+/* ---------- dropzone ---------- */
+/* box di upload: GRANDE e FISSO (non più una striscia stretta) */
+.dropzone {
+  border: 2px dashed #26334a; border-radius: 10px;
+  padding: 40px 26px; min-height: 220px; text-align: center; color: var(--muted);
+  cursor: pointer; transition: border-color .15s, background .15s;
+  margin-bottom: 16px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+}
+.dropzone strong { color: var(--text); }
+.dropzone.drag, .dropzone:hover { border-color: rgba(0, 229, 199, .65); background: rgba(0, 229, 199, .04); }
+/* box di caricamento: piu' grande e con bordo tratteggiato che scorre l'arcobaleno */
+.dropzone.busy {
+  cursor: progress; border-width: 2px; border-color: #ff3b3b;
+  padding: 48px 26px; min-height: 220px;
+  animation: border-rainbow 3s linear infinite;
+}
+.upload-progress { display: flex; flex-direction: column; gap: 14px; align-items: center; width: 100%; }
+
+/* ---------- barre / badge ---------- */
+.progress {
+  background: var(--input); border-radius: 3px; height: 8px; width: 220px;
+  overflow: hidden; border: 1px solid var(--border);
+}
+/* barre generiche: stesso motivo arcobaleno scorrevole di tutta la GUI */
+.progress > div {
+  background: linear-gradient(90deg,#ff3b3b,#ff9e00,#ffe600,#38ff8b,#00e5ff,#7a7bff,#ff5cf0,#ff3b3b);
+  background-size: 200% 100%; height: 100%; transition: width .4s;
+  animation: rainbow-slide 2.2s linear infinite;
+}
+.progress.slim { height: 5px; width: 140px; margin-top: 4px; }
+
+/* ---------- barra a trattini arcobaleno (stile terminale) ---------- */
+.rainbow-bar {
+  position: relative; display: inline-block; max-width: 100%; width: min(88%, 560px);
+  font-family: var(--mono); font-weight: 700; font-size: 14px; line-height: 1.1;
+  letter-spacing: 1px; white-space: nowrap; overflow: hidden; border-radius: 5px;
+}
+.rainbow-bar-track { display: block; color: rgba(255,255,255,.12); }
+.rainbow-bar-fill {
+  position: absolute; left: 0; top: 0; overflow: hidden; white-space: nowrap;
+  background: linear-gradient(90deg,#ff3b3b,#ff9e00,#ffe600,#38ff8b,#00e5ff,#7a7bff,#ff5cf0,#ff3b3b);
+  background-size: 200% 100%;
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent;
+  animation: rainbow-slide 2.2s linear infinite;
+  transition: width .35s ease;
+  filter: drop-shadow(0 0 5px rgba(0,229,255,.35));
+}
+.rainbow-bar-big { width: min(92%, 720px); font-size: 22px; letter-spacing: 3px; }
+
+@keyframes rainbow-slide { from { background-position: 0 0; } to { background-position: 200% 0; } }
+@keyframes border-rainbow {
+  0%   { border-color: #ff3b3b; }
+  16%  { border-color: #ff9e00; }
+  33%  { border-color: #ffe600; }
+  50%  { border-color: #38ff8b; }
+  66%  { border-color: #00e5ff; }
+  83%  { border-color: #7a7bff; }
+  100% { border-color: #ff3b3b; }
+}
+/* rispetta reduced-motion e l'impostazione "Movimento ridotto": arcobaleno fermo */
+@media (prefers-reduced-motion: reduce) {
+  .rainbow-bar-fill, .progress > div, .dropzone.busy,
+  .btn.primary:hover:not(:disabled) { animation: none; }
+}
+html.motion-off .rainbow-bar-fill,
+html.motion-off .progress > div,
+html.motion-off .dropzone.busy,
+html.motion-off .btn.primary:hover:not(:disabled) { animation: none; }
+
+.badge {
+  display: inline-block; padding: 2px 9px; border-radius: 4px;
+  border: 1px solid transparent;
+  font-family: var(--mono); font-size: 10.5px; font-weight: 650;
+  letter-spacing: .05em; text-transform: uppercase; white-space: nowrap;
+}
+.badge-uploaded  { color: #9db4d6; border-color: rgba(157, 180, 214, .35); background: rgba(157, 180, 214, .05); }
+.badge-transcribing, .badge-exporting { color: var(--yellow); border-color: rgba(255, 216, 77, .4); background: rgba(255, 216, 77, .05); }
+.badge-review    { color: var(--orange); border-color: rgba(255, 158, 77, .4); background: rgba(255, 158, 77, .05); }
+.badge-ready     { color: var(--green); border-color: rgba(47, 230, 160, .45); background: rgba(47, 230, 160, .05); box-shadow: 0 0 10px rgba(47, 230, 160, .14); }
+.badge-exported  { color: var(--accent); border-color: rgba(0, 229, 199, .45); background: rgba(0, 229, 199, .05); box-shadow: 0 0 10px rgba(0, 229, 199, .14); }
+.badge-error     { color: var(--red); border-color: rgba(255, 92, 108, .45); background: rgba(255, 92, 108, .06); }
+
+.batch-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+.tpl-picker {
+  display: inline-flex; align-items: center; gap: 6px;
+  color: var(--muted); font-size: 13px;
+}
+.tpl-picker select {
+  background: var(--input); border: 1px solid var(--border); border-radius: 6px;
+  color: var(--text); padding: 7px 10px; font-size: 13px; max-width: 220px;
+}
+.tpl-picker select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 1px rgba(0, 229, 199, .3); }
+.flash { color: var(--green); font-size: 13px; }
+/* variante rossa per i messaggi di errore (ToastType "error"): il colore inline deve concordare col toast */
+.flash-error { color: var(--red); }
+
+.jobsbar {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
+  padding: 8px 12px; margin-bottom: 12px; font-size: 13px;
+}
+.pulse {
+  width: 9px; height: 9px; border-radius: 50%; background: var(--yellow);
+  animation: pulse 1.2s infinite;
+}
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
+
+.filters { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+.chip {
+  background: transparent; border: 1px solid var(--border); border-radius: 4px;
+  color: var(--muted); padding: 5px 12px; font-size: 12.5px; cursor: pointer;
+  transition: color .15s, border-color .15s, background .15s, box-shadow .15s;
+}
+/* chip attivo: testo ARCOBALENO su riquadro appena percettibile */
+.chip.active {
+  border-color: rgba(255, 255, 255, .22);
+  background: var(--rainbow);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent;
+  box-shadow: inset 0 0 0 999px rgba(255, 255, 255, .035);
+}
+
+/* ---------- tabella video ---------- */
+.videos { width: 100%; border-collapse: collapse; }
+.videos th {
+  text-align: left; color: var(--muted); font-weight: 600;
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: .07em; text-transform: uppercase;
+  padding: 8px 10px; border-bottom: 1px solid var(--border);
+}
+.videos td { padding: 8px 10px; border-bottom: 1px solid #141c2a; vertical-align: middle; }
+.videos tbody tr:hover td { background: rgba(160, 190, 255, .025); }
+.videos td:nth-child(4), .videos td:nth-child(5) { font-family: var(--mono); font-size: 12.5px; }
+.videos .row-error { background: rgba(255, 92, 108, .05); }
+.thumb {
+  width: 44px; height: 78px; object-fit: cover; border-radius: 4px;
+  background: var(--panel-2); border: 1px solid var(--border); display: block;
+}
+.video-name { color: var(--text); font-weight: 600; }
+.video-name:hover { color: var(--accent); }
+.name-cell { max-width: 320px; }
+.actions { white-space: nowrap; }
+.actions .btn { margin-right: 6px; }
+.empty { padding: 40px; text-align: center; color: var(--muted); }
+
+/* ---------- editor ---------- */
+.editor-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.video-title {
+  font-size: 16px; max-width: 420px; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap;
+}
+.error-box {
+  background: rgba(255, 92, 108, .08); border: 1px solid rgba(255, 92, 108, .55); border-radius: 6px;
+  padding: 10px 14px; margin-bottom: 12px; color: var(--red);
+}
+
+.editor-grid { display: grid; grid-template-columns: minmax(340px, 460px) 1fr; gap: 20px; }
+/* single-column (tablet in verticale e sotto): il player non è più vincolato
+   dalla colonna stretta, quindi limitiamo la LARGHEZZA in base all'altezza per
+   mantenere il 9:16 reale (niente fascia nera ai lati) e non sforare lo schermo.
+   Sopra i 980px (desktop, due colonne) tutto resta invariato. */
+@media (max-width: 980px) {
+  .editor-grid { grid-template-columns: 1fr; }
+  .player-frame { width: min(100%, calc(62vh * 9 / 16)); }
+}
+
+.player-frame {
+  position: relative; aspect-ratio: 9/16; max-height: 62vh;
+  margin: 0 auto; background: #000; border-radius: 8px; overflow: hidden;
+  border: 1px solid var(--border);
+}
+.player-frame video { width: 100%; height: 100%; object-fit: contain; display: block; }
+
+/* anteprima sottotitolo sovrimpressa (approssima il burn-in) */
+.sub-overlay {
+  position: absolute; left: 6%; right: 6%; display: flex; justify-content: center;
+  pointer-events: none; text-align: center;
+}
+.sub-overlay span { display: inline-block; }
+/* l'anteprima del burn-in resta in un font di sistema: rispecchia il render
+   finale (sans) e non va resa monospace dalla UI. Resta solo il bordo nero. */
+.sub-overlay span, .style-sample span {
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+.sub-style-classic_white, .sub-style-classic_yellow, .sub-style-bottom_box { bottom: 9%; }
+.sub-style-tiktok_big { top: 0; bottom: 0; align-items: center; }
+
+.sub-style-classic_white span, .sub-style-classic_yellow span {
+  font-weight: 800; font-size: clamp(13px, 1.6vw, 19px);
+  color: #fff; text-shadow: 0 0 4px #000, 2px 2px 0 #000, -2px 2px 0 #000, 2px -2px 0 #000, -2px -2px 0 #000;
+}
+.sub-style-classic_yellow span { color: #ffe23c; }
+.sub-style-tiktok_big span {
+  font-weight: 900; font-size: clamp(17px, 2.2vw, 26px); color: #fff;
+  text-shadow: 0 0 6px #000, 3px 3px 0 #000, -3px 3px 0 #000, 3px -3px 0 #000, -3px -3px 0 #000;
+}
+.sub-style-bottom_box span {
+  font-weight: 700; font-size: clamp(12px, 1.4vw, 17px); color: #fff;
+  background: rgba(0,0,0,.55); padding: 4px 10px; border-radius: 4px;
+}
+/* karaoke: parola corrente evidenziata (anteprima live; posizione/scala inline) */
+.sub-style-karaoke_word { align-items: center; }
+.sub-style-karaoke_word span {
+  font-weight: 800; font-size: calc(clamp(16px, 2vw, 24px) * var(--sub-scale, 1)); color: #fff;
+  /* solo bordo nero SOTTILE fisso: niente ombra/glow dietro */
+  text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000;
+}
+.sub-style-karaoke_word em { color: #ffd400; font-style: normal; }
+
+/* ---------- timeline ---------- */
+.timeline-wrap { margin-top: 12px; user-select: none; }
+.timeline {
+  position: relative; height: 34px; background: var(--input);
+  border: 1px solid var(--border); border-radius: 6px; cursor: pointer;
+  touch-action: none; overflow: hidden;
+}
+.tl-dim { position: absolute; top: 0; bottom: 0; background: rgba(0, 0, 0, .62); }
+.tl-cut { position: absolute; top: 0; bottom: 0; background: rgba(255, 92, 108, .38); }
+.tl-cutmark { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--red); }
+.tl-playhead { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--accent); }
+.tl-handle {
+  position: absolute; top: -3px; bottom: -3px; width: 12px; margin-left: -6px;
+  background: var(--accent); border-radius: 3px; cursor: ew-resize; z-index: 2;
+  box-shadow: 0 0 10px rgba(0, 229, 199, .35);
+}
+.tl-handle:hover { background: #52f2de; }
+/* maniglie inizio/fine di OGNI taglio: trascinabili per modificare gli estremi */
+.tl-cut-handle {
+  position: absolute; top: -3px; bottom: -3px; width: 9px; margin-left: -4.5px;
+  background: var(--red); border-radius: 3px; cursor: ew-resize; z-index: 3;
+  box-shadow: 0 0 8px rgba(255, 92, 108, .5);
+}
+.tl-cut-handle::after {
+  content: ""; position: absolute; inset: 0; margin: auto; width: 1px; height: 40%;
+  background: rgba(255, 255, 255, .8);
+}
+.tl-cut-handle:hover, .tl-cut-handle:focus-visible { background: #ff8a97; outline: none; }
+.tl-times {
+  display: flex; justify-content: space-between; color: var(--muted);
+  font-family: var(--mono); font-size: 11px; margin-top: 4px;
+}
+.tl-current { color: var(--accent); font-weight: 650; }
+
+/* ---------- controlli trim/tagli ---------- */
+.trim-controls {
+  margin-top: 12px; background: var(--panel); border: 1px solid var(--border);
+  border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 10px;
+}
+.control-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.control-label {
+  width: 44px; color: var(--muted); font-weight: 700; text-transform: uppercase;
+  font-family: var(--mono); font-size: 11px; letter-spacing: .05em;
+}
+.time-input {
+  width: 76px; background: var(--input); border: 1px solid var(--border);
+  border-radius: 4px; color: var(--text); padding: 5px 8px; font-size: 12.5px;
+  font-family: var(--mono); font-variant-numeric: tabular-nums; text-align: center;
+}
+.cut-list { display: flex; gap: 8px; flex-wrap: wrap; }
+.cut-pill {
+  background: rgba(255, 92, 108, .08); border: 1px solid rgba(255, 92, 108, .4);
+  border-radius: 4px; padding: 2px 8px; font-family: var(--mono); font-size: 11.5px;
+}
+.actions-row { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+
+/* ---------- sottotitoli ---------- */
+.subs-col { min-width: 0; }
+.subs-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.style-section { margin-bottom: 14px; display: flex; flex-direction: column; gap: 6px; }
+.style-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.style-card {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
+  padding: 8px; cursor: pointer; color: var(--text); text-align: center;
+  transition: border-color .15s, box-shadow .15s;
+}
+.style-card.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.style-sample {
+  height: 74px; border-radius: 4px; display: flex; align-items: flex-end;
+  justify-content: center; padding: 8px; margin-bottom: 6px; position: relative;
+}
+.bg-video { background: linear-gradient(160deg, #273250 0%, #17203a 55%, #0d1322 100%); }
+.style-sample.sub-style-tiktok_big, .style-sample.sub-style-karaoke_word { align-items: center; }
+.style-sample span { font-size: 12px !important; }
+.style-label { font-size: 12px; }
+
+/* colore parola evidenziata (visibile solo con lo stile karaoke_word) */
+.karaoke-color-row { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
+.karaoke-color-label { font-size: 13px; color: var(--text); cursor: pointer; }
+.karaoke-color-input {
+  width: 44px; height: 40px; min-width: 44px; padding: 2px; cursor: pointer;
+  background: var(--input); border: 1px solid var(--border); border-radius: 6px;
+}
+.karaoke-color-value {
+  font-family: var(--mono); font-size: 12px; color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.sub-adjust-row { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
+.sub-adjust-row input[type="range"] { flex: 1; cursor: pointer; accent-color: var(--accent); }
+.sub-adjust-label { font-size: 13px; color: var(--text); white-space: nowrap; min-width: 132px; }
+.sub-adjust-val { font-family: var(--mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.check-label {
+  display: inline-flex; align-items: center; gap: 8px;
+  color: var(--text); font-size: 13px; cursor: pointer;
+}
+.extra-col { align-items: flex-start; }
+.extra-col .check-label { width: 100%; }
+.extra-col .control-label { padding-top: 2px; }
+.extra-col { flex-direction: row; }
+.extra-col > .check-label { flex-basis: calc(100% - 60px); }
+.check-label input { accent-color: var(--accent); width: 15px; height: 15px; }
+
+.subs-list {
+  display: flex; flex-direction: column; gap: 8px; max-height: 68vh; overflow-y: auto; padding-right: 4px;
+  scrollbar-width: thin; scrollbar-color: #223047 transparent;
+}
+.subs-list::-webkit-scrollbar { width: 8px; }
+.subs-list::-webkit-scrollbar-track { background: transparent; }
+.subs-list::-webkit-scrollbar-thumb { background: #223047; border-radius: 4px; }
+.subs-list::-webkit-scrollbar-thumb:hover { background: #2e415e; }
+.sub-row {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 6px;
+  padding: 8px; display: flex; flex-direction: column; gap: 6px;
+}
+.sub-row.active { border-color: rgba(0, 229, 199, .6); box-shadow: inset 2px 0 0 var(--accent); }
+.sub-times { display: flex; align-items: center; gap: 6px; }
+.sub-row textarea {
+  background: var(--input); border: 1px solid var(--border); border-radius: 4px;
+  color: var(--text); padding: 6px 8px; font-size: 13.5px; resize: vertical;
+  font-family: inherit; width: 100%;
+}
+.sub-row textarea:focus, .time-input:focus {
+  outline: none; border-color: var(--accent); box-shadow: 0 0 0 1px rgba(0, 229, 199, .3);
+}
+
+/* ---------- aggiunte UX: upload per-file, ricerca/selezione dashboard, editor ---------- */
+.upload-file-line {
+  max-width: min(92vw, 720px);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: var(--mono); font-size: 15px; color: var(--text);
+}
+.upload-prompt {
+  font-weight: 700;
+  background: var(--rainbow);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent;
+}
+.progress.total > div { background: var(--green); }
+
+.search-input {
+  background: var(--input); border: 1px solid var(--border); border-radius: 6px;
+  color: var(--text); padding: 6px 10px; font-size: 13px; width: 210px;
+}
+.search-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 1px rgba(0, 229, 199, .3); }
+
+.selection-bar {
+  background: rgba(177, 108, 234, .07);
+  border: 1px solid rgba(177, 108, 234, .5);
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+.check-col { width: 26px; }
+.row-check {
+  accent-color: var(--accent); width: 15px; height: 15px;
+  cursor: pointer; vertical-align: middle;
+}
+
+.preview-skip { margin-top: 10px; }
+.kbd-hint { margin-top: 8px; }
+.editor-head .btn { white-space: nowrap; }

@@ -1,0 +1,194 @@
+/* ============================================================
+   ACCESSIBILITÀ & TASTIERA (Iterazione 3)
+   ------------------------------------------------------------
+   - Skip-link "Salta al contenuto" (visibile solo al focus)
+   - Focus-visible coerente e ad alto contrasto su TUTTI gli
+     interattivi (bottoni, link, input, chip, card, righe, voci
+     menu, maniglie timeline, dropzone, checkbox)
+   - Utility .sr-only (testo solo per screen reader)
+   - Pannello scorciatoie da tastiera (dialog "?")
+
+   Caricato PER ULTIMO in main.tsx: le regole :focus-visible qui
+   vincono, a parità di specificità, sulle equivalenti precedenti
+   per ordine sorgente. Ogni movimento nuovo degrada con
+   prefers-reduced-motion (override in fondo, come negli altri fogli).
+   ============================================================ */
+
+
+/* ---------- testo solo per screen reader ---------- */
+.sr-only {
+  position: absolute !important;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap; border: 0;
+}
+
+
+/* ---------- skip-link ---------- */
+.skip-link {
+  position: fixed; top: 8px; left: 8px; z-index: 3000;
+  background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--accent); border-radius: 6px;
+  padding: 10px 16px; font-size: 13px; font-weight: 600;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .5);
+  transform: translateY(-160%);
+  transition: transform .18s ease;
+}
+.skip-link:focus {
+  transform: translateY(0);
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
+
+/* target del focus di pagina (spostato qui al cambio route):
+   nessun riquadro attorno all'intero <main> quando riceve il focus da script */
+#main-content:focus { outline: none; }
+
+
+/* ============================================================
+   FOCUS-VISIBLE — anello coerente ad alto contrasto
+   (l'outline segue automaticamente il border-radius dell'elemento)
+   ============================================================ */
+a:focus-visible,
+button:focus-visible,
+select:focus-visible,
+summary:focus-visible,
+.btn:focus-visible,
+.chip:focus-visible,
+.linklike:focus-visible,
+.style-card:focus-visible,
+.menu-trigger:focus-visible,
+[role="button"]:focus-visible,
+[role="menuitem"]:focus-visible,
+[role="slider"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* input/textarea/select: anello accent (in aggiunta al bordo :focus già presente) */
+input:focus-visible,
+textarea:focus-visible,
+.time-input:focus-visible,
+.search-input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* checkbox: anello ben visibile */
+input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* superfici accent (bottone primario, maniglie timeline): anello chiaro per stacco */
+.btn.primary:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+
+/* link dentro la tabella video (thumbnail + nome) */
+.videos a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* dropzone: ora attivabile da tastiera → focus ben visibile */
+.dropzone:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-color: rgba(0, 229, 199, .65);
+}
+
+
+/* ============================================================
+   TIMELINE — maniglie trim operabili da tastiera (role="slider")
+   ============================================================ */
+.tl-handle:focus-visible {
+  background: #52f2de;
+  outline: none;
+  /* doppio anello: scuro poi chiaro, leggibile sopra l'accent brillante */
+  box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--text);
+}
+
+
+/* ============================================================
+   LEGENDA + PANNELLO SCORCIATOIE (dialog "?")
+   ============================================================ */
+.kbd-hint-row {
+  margin-top: 8px;
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+}
+.kbd-hint-row .kbd-hint { margin-top: 0; }
+
+.kbd-help-btn {
+  flex: 0 0 auto;
+  width: 26px; height: 26px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-family: var(--mono); font-weight: 700; line-height: 1;
+  border-radius: 50%;
+}
+
+.kbd-overlay {
+  position: fixed; inset: 0; z-index: 2500;
+  display: flex; align-items: center; justify-content: center;
+  padding: 20px; background: rgba(4, 6, 10, .62);
+  backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
+  animation: kbd-overlay-in .16s ease both;
+}
+.kbd-dialog {
+  width: 100%; max-width: 440px;
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 10px; padding: 18px 20px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, .6), 0 0 0 1px rgba(0, 229, 199, .06);
+  animation: kbd-dialog-in .18s cubic-bezier(.2, .7, .2, 1) both;
+}
+.kbd-dialog-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; margin-bottom: 14px;
+}
+.kbd-dialog-head h2 {
+  font-family: var(--mono); font-size: 14px; letter-spacing: .04em;
+  text-transform: uppercase; color: var(--text);
+}
+.kbd-close {
+  font-size: 20px; line-height: 1; color: var(--muted);
+  padding: 2px 6px;
+}
+.kbd-close:hover { color: var(--text); }
+
+.kbd-list {
+  display: grid; grid-template-columns: auto 1fr;
+  gap: 9px 16px; align-items: center; margin: 0;
+}
+.kbd-list dt { margin: 0; }
+.kbd-list dd { margin: 0; color: var(--text); font-size: 13px; }
+.kbd-list kbd {
+  font-family: var(--mono); font-size: 11.5px; color: var(--text);
+  background: var(--input); border: 1px solid var(--border);
+  border-bottom-width: 2px; border-radius: 4px;
+  padding: 2px 7px; white-space: nowrap;
+}
+.kbd-note { margin: 14px 0 0; }
+
+@keyframes kbd-overlay-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes kbd-dialog-in {
+  from { opacity: 0; transform: translateY(8px) scale(.98); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* mobile/touch: la legenda tastiera non serve (coerente con editor.css) */
+@media (max-width: 640px) {
+  .kbd-hint-row { display: none; }
+}
+
+
+/* ============================================================
+   prefers-reduced-motion: reduce → niente movimento sui nuovi elementi
+   ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  .skip-link { transition: none; }
+  .kbd-overlay,
+  .kbd-dialog { animation: none; }
+}

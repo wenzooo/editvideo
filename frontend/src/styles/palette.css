@@ -1,0 +1,231 @@
+/* ============================================================
+   COMMAND PALETTE (Iterazione 12) — stile Watch Dogs / ctOS
+   ------------------------------------------------------------
+   Overlay modale evocato con Ctrl/Cmd+K. Foglio importato DENTRO
+   CommandPalette.tsx (nessuna modifica a main.tsx). Coerente con
+   il resto: pannello scuro, bordo accent, mono per le scorciatoie,
+   sweep/scanline discreta. Si animano SOLO transform / opacity /
+   background-position (compositor-friendly). Le override per
+   prefers-reduced-motion sono raccolte IN FONDO, come negli altri file.
+   ============================================================ */
+
+
+/* ---------- overlay / backdrop ---------- */
+.cmdk-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;                 /* sopra topbar(10) e menu popover(60); i toast(2000) restano sopra */
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 14vh 16px 24px;
+  background: rgba(4, 6, 10, .62);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  animation: cmdk-overlay-in .16s ease both;
+}
+
+
+/* ---------- pannello ---------- */
+.cmdk-panel {
+  position: relative;
+  overflow: hidden;
+  width: min(94vw, 560px);
+  max-height: 78vh;
+  display: flex;
+  flex-direction: column;
+  background: rgba(14, 19, 28, .98);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, .6), 0 0 0 1px rgba(0, 229, 199, .06);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  animation: cmdk-in .18s cubic-bezier(.2, .7, .2, 1) both;
+}
+/* riga accent in cima (come topbar / menu) */
+.cmdk-panel::before {
+  content: "";
+  position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  pointer-events: none;
+  background: var(--rainbow);
+  opacity: .9;
+}
+
+
+/* ---------- riga di ricerca ---------- */
+.cmdk-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+/* sweep discreto lungo il bordo inferiore della barra (solo background-position) */
+.cmdk-search::after {
+  content: "";
+  position: absolute; left: 0; right: 0; bottom: -1px; height: 1px;
+  pointer-events: none; opacity: .6;
+  background: linear-gradient(90deg, transparent, rgba(0, 229, 199, .75), transparent);
+  background-size: 40% 100%; background-repeat: no-repeat; background-position: -40% 0;
+  animation: cmdk-sweep 3.2s linear infinite;
+}
+.cmdk-prompt {
+  flex: 0 0 auto;
+  font-family: var(--mono);
+  font-size: 15px;
+  /* prompt ">_" in ARCOBALENO (tocco terminale) */
+  background: var(--rainbow);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent;
+  line-height: 1;
+}
+.cmdk-input {
+  flex: 1; min-width: 0;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-size: 15px;
+  font-family: inherit;
+  min-height: 24px;
+  padding: 0;
+}
+.cmdk-input::placeholder { color: var(--muted); }
+.cmdk-input:focus { outline: none; }
+
+
+/* ---------- lista risultati ---------- */
+.cmdk-list {
+  list-style: none;
+  margin: 0;
+  padding: 6px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #223047 transparent;
+}
+.cmdk-list::-webkit-scrollbar { width: 8px; }
+.cmdk-list::-webkit-scrollbar-track { background: transparent; }
+.cmdk-list::-webkit-scrollbar-thumb { background: #223047; border-radius: 4px; }
+.cmdk-list::-webkit-scrollbar-thumb:hover { background: #2e415e; }
+
+.cmdk-item {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 9px 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--text);
+  cursor: pointer;
+  user-select: none;
+  transition: background .12s, border-color .12s, color .12s;
+}
+.cmdk-item.active {
+  background: rgba(0, 229, 199, .08);
+  border-color: rgba(0, 229, 199, .32);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.cmdk-item.danger { color: var(--red); }
+.cmdk-item.active.danger {
+  background: rgba(255, 92, 108, .09);
+  border-color: rgba(255, 92, 108, .38);
+  box-shadow: inset 2px 0 0 var(--red);
+}
+
+.cmdk-item-icon {
+  flex: 0 0 20px;
+  width: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 14px;
+  opacity: .9;
+}
+.cmdk-item.active .cmdk-item-icon { color: var(--accent); }
+.cmdk-item.active.danger .cmdk-item-icon { color: var(--red); }
+.cmdk-item-label { flex: 1; min-width: 0; font-size: 13.5px; }
+.cmdk-item-hint {
+  flex: 0 0 auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1;
+  letter-spacing: .02em;
+  color: var(--accent);
+  border: 1px solid rgba(0, 229, 199, .35);
+  border-radius: 4px;
+  padding: 3px 6px;
+}
+.cmdk-item.danger .cmdk-item-hint { color: var(--red); border-color: rgba(255, 92, 108, .4); }
+
+
+/* ---------- stato vuoto ---------- */
+.cmdk-empty {
+  padding: 24px 14px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+}
+.cmdk-empty strong { color: var(--text); font-weight: 600; }
+
+
+/* ---------- footer di aiuto ---------- */
+.cmdk-foot {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  flex-wrap: wrap;
+}
+.cmdk-foot-item { display: inline-flex; align-items: center; gap: 5px; }
+.cmdk-foot kbd {
+  font-family: var(--mono);
+  background: var(--input);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 5px;
+  color: var(--text);
+  font-size: 11px;
+}
+
+
+/* ---------- keyframes ---------- */
+@keyframes cmdk-overlay-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes cmdk-in {
+  from { opacity: 0; transform: translateY(-10px) scale(.98); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes cmdk-sweep {
+  from { background-position: -40% 0; }
+  to   { background-position: 140% 0; }
+}
+
+
+/* ---------- mobile (≤ 640px): palette a piena larghezza in alto ---------- */
+@media (max-width: 640px) {
+  .cmdk-overlay { padding: 0; align-items: stretch; }
+  .cmdk-panel {
+    width: 100%;
+    max-height: 100%;
+    border-radius: 0 0 12px 12px;
+    box-shadow: 0 18px 48px rgba(0, 0, 0, .6);
+  }
+  .cmdk-input { font-size: 16px; min-height: 40px; }   /* ≥40px, evita lo zoom iOS */
+  .cmdk-item { padding: 12px 10px; }
+}
+
+
+/* ---------- prefers-reduced-motion: reduce → niente movimento ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .cmdk-overlay,
+  .cmdk-panel { animation: none; }
+  .cmdk-search::after { animation: none; opacity: 0; }
+  .cmdk-item { transition: none; }
+}

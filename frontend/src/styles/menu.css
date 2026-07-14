@@ -1,0 +1,84 @@
+/* ============================================================
+   Menu a tendina (HUD ctOS) — componente <Menu>/<MenuItem>
+   Base condivisa Iterazione 1. Nessun conflitto con styles.css.
+   ============================================================ */
+
+.menu { position: relative; display: inline-flex; }
+
+.menu-trigger { gap: 6px; }
+.menu-trigger-icon { display: inline-flex; align-items: center; }
+.menu-caret {
+  font-size: 10px; opacity: .7; margin-left: 1px;
+  transition: transform .18s ease, color .18s ease;
+}
+.menu-trigger.open .menu-caret { transform: rotate(180deg); color: var(--accent); }
+.menu-trigger.open {
+  border-color: #2c3b54;
+  box-shadow: 0 0 0 1px rgba(0, 229, 199, .18);
+}
+
+.menu-pop {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 60;
+  min-width: 210px;
+}
+.menu-pop.align-right { left: auto; right: 0; }
+
+.menu-pop-inner {
+  background: rgba(14, 19, 28, .98);
+  border: 1px solid var(--border); border-radius: 8px;
+  padding: 5px; display: flex; flex-direction: column; gap: 1px;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, .5), 0 0 0 1px rgba(0, 229, 199, .06);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  transform-origin: top left;
+  animation: menu-in .14s ease;
+}
+.menu-pop.align-right .menu-pop-inner { transform-origin: top right; }
+
+@keyframes menu-in {
+  from { opacity: 0; transform: translateY(-4px) scale(.98); }
+  to   { opacity: 1; transform: none; }
+}
+
+.menu-item {
+  display: flex; align-items: center; gap: 9px; width: 100%;
+  text-align: left; background: transparent;
+  border: 1px solid transparent; border-radius: 5px;
+  color: var(--text); padding: 7px 9px; font-size: 13px; cursor: pointer;
+  font-family: inherit; white-space: nowrap;
+  transition: background .12s, border-color .12s, color .12s;
+}
+.menu-item:hover:not(:disabled),
+.menu-item:focus-visible {
+  background: rgba(0, 229, 199, .08);
+  border-color: rgba(0, 229, 199, .28);
+  outline: none;
+}
+.menu-item:disabled { opacity: .4; cursor: not-allowed; }
+.menu-item.danger { color: var(--red); }
+.menu-item.danger:hover:not(:disabled) {
+  background: rgba(255, 92, 108, .09);
+  border-color: rgba(255, 92, 108, .35);
+}
+.menu-item-icon {
+  width: 16px; flex: 0 0 16px; display: inline-flex;
+  align-items: center; justify-content: center; opacity: .85;
+}
+.menu-item-label { flex: 1; }
+.menu-item-hint {
+  color: var(--muted); font-family: var(--mono); font-size: 11px;
+  letter-spacing: .02em;
+}
+.menu-sep { height: 1px; background: var(--border); margin: 4px 2px; }
+
+/* ---- Mobile / touch: voci più alte, popover ancorato comodo ---- */
+@media (max-width: 640px) {
+  .menu-pop { min-width: 220px; }
+  .menu-item { padding: 11px 12px; font-size: 14px; }
+  .menu-trigger { padding: 9px 14px; }
+}
+
+/* Rispetta la preferenza di ridurre il movimento */
+@media (prefers-reduced-motion: reduce) {
+  .menu-pop-inner { animation: none; }
+  .menu-caret { transition: none; }
+}

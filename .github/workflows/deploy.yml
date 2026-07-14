@@ -1,0 +1,79 @@
+name: Deploy su Hugging Face
+
+# Ad ogni push/merge su master: builda e testa il frontend, riallinea la cartella
+# di deploy (app + dist aggiornati dal sorgente) e pubblica sullo Space HF.
+# Richiede il secret di repo HF_TOKEN (token Hugging Face con permesso WRITE sullo
+# Space brushk/editvideo).
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch: {}
+
+# un deploy alla volta: se ne parte un altro, annulla il precedente in corso
+concurrency:
+  group: deploy-hf
+  cancel-in-progress: true
+
+jobs:
+  build-e-deploy:
+    # non far girare il deploy su eventuali fork
+    if: github.repository == 'BrushRLX/editorvideo'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build + test frontend (gate)
+        working-directory: frontend
+        run: |
+          npm ci
+          npx tsc --noEmit
+          npx vitest run
+          npm run build
+
+      - name: Riallinea la cartella di deploy (app + dist dal sorgente)
+        run: |
+          rm -rf deploy/hf-space/app
+          cp -r backend/app deploy/hf-space/app
+          rm -rf deploy/hf-space/frontend/dist
+          mkdir -p deploy/hf-space/frontend
+          cp -r frontend/dist deploy/hf-space/frontend/dist
+          # Dockerfile, README.md e requirements.txt restano quelli committati nello Space
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Pubblica sullo Space Hugging Face
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          if [ -z "$HF_TOKEN" ]; then
+            echo "::error::Manca il secret HF_TOKEN (Settings -> Secrets and variables -> Actions)."
+            exit 1
+          fi
+          pip install --quiet "huggingface_hub>=0.24"
+          python - <<'PY'
+          import os
+          from huggingface_hub import upload_folder
+          sha = os.environ.get("GITHUB_SHA", "")[:7]
+          upload_folder(
+              folder_path="deploy/hf-space",
+              repo_id="brushk/editvideo",
+              repo_type="space",
+              token=os.environ["HF_TOKEN"],
+              commit_message=f"CI deploy da {sha}",
+              ignore_patterns=["**/__pycache__/**", "*.pyc"],
+              delete_patterns=["frontend/dist/assets/*"],
+          )
+          print("Deploy completato sullo Space brushk/editvideo.")
+          PY

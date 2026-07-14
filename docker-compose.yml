@@ -1,0 +1,56 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      # override consigliato via .env non committato (SECURITY_REPORT #6):
+      # i default valgono solo per il primo avvio locale
+      POSTGRES_USER: ${POSTGRES_USER:-editvideo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-editvideo}
+      POSTGRES_DB: ${POSTGRES_DB:-editvideo}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-editvideo}"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  web:
+    build: .
+    ports:
+      - "8000:8000"
+    environment: &appenv
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-editvideo}:${POSTGRES_PASSWORD:-editvideo}@db:5432/${POSTGRES_DB:-editvideo}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-changeme}
+      SECRET_KEY: ${SECRET_KEY:-}
+      WHISPER_MODEL: ${WHISPER_MODEL:-small}
+      WHISPER_LANGUAGE: ${WHISPER_LANGUAGE:-it}
+      SUB_MAX_CHARS: ${SUB_MAX_CHARS:-42}
+      EMBEDDED_WORKER: "0"
+    volumes:
+      - media:/media
+      - appdata:/data
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  worker:
+    build: .
+    command: python -m app.worker
+    environment: *appenv
+    volumes:
+      - media:/media
+      - appdata:/data
+      - whisper_cache:/root/.cache   # modelli Whisper scaricati una volta sola
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  media:
+  appdata:
+  whisper_cache:

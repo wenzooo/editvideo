@@ -1,0 +1,134 @@
+/* ============================================================
+   ONBOARDING (Iterazione 11) — primo avvio + guida "come funziona"
+   ------------------------------------------------------------
+   Pannello NON invasivo in cima alla Dashboard: scorre nel flusso
+   normale, non è un overlay e non blocca mai i click sul resto della
+   pagina. Foglio importato DENTRO Onboarding.tsx (nessuna modifica a
+   main.tsx), come palette.css / toast.css. Coerente con lo stile HUD
+   ctOS: pannello scuro, riga accent in cima, mono per i dettagli. Si
+   animano SOLO opacity / transform (compositor-friendly). Le override
+   per mobile e prefers-reduced-motion sono in fondo, come negli altri
+   fogli.
+   ============================================================ */
+
+
+/* ---------- pannello ---------- */
+.onb-panel {
+  position: relative;
+  overflow: hidden;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px 18px;
+  margin-bottom: 16px;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, .35), 0 0 0 1px rgba(0, 229, 199, .05);
+  animation: onb-in .2s cubic-bezier(.2, .7, .2, 1) both;
+}
+/* riceve il focus via script (region): niente riquadro sull'intero pannello */
+.onb-panel:focus { outline: none; }
+/* riga accent in cima (come topbar / cmdk-panel) */
+.onb-panel::before {
+  content: "";
+  position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  pointer-events: none;
+  background: var(--rainbow);
+  opacity: .9;
+}
+
+
+/* ---------- intestazione ---------- */
+.onb-head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 12px; margin-bottom: 6px;
+}
+.onb-title-wrap { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.onb-kicker {
+  font-family: var(--mono);
+  font-size: 10.5px; font-weight: 650;
+  letter-spacing: .12em; text-transform: uppercase;
+  /* kicker "›_ guida rapida" in ARCOBALENO */
+  background: var(--rainbow);
+  -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent;
+}
+.onb-title { font-size: 17px; font-weight: 700; color: var(--text); letter-spacing: .01em; }
+
+.onb-x {
+  flex: 0 0 auto;
+  width: 32px; height: 32px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; color: var(--muted);
+  border: 1px solid var(--border); border-radius: 6px;
+  font-size: 15px; line-height: 1; cursor: pointer;
+  transition: color .15s, border-color .15s, background .15s;
+}
+.onb-x:hover { color: var(--text); border-color: #2c3b54; background: var(--panel-2); }
+
+
+/* ---------- testo guida ---------- */
+.onb-lead { margin: 0 0 14px; color: var(--muted); font-size: 13px; max-width: 62ch; }
+
+
+/* ---------- passi (grid responsiva, auto-fit) ---------- */
+.onb-steps {
+  list-style: none; margin: 0; padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+.onb-step {
+  display: flex; align-items: flex-start; gap: 10px;
+  background: var(--bg-2);
+  border: 1px solid var(--border); border-radius: 8px;
+  padding: 11px 12px;
+}
+.onb-step-n {
+  flex: 0 0 auto;
+  width: 26px; height: 26px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-family: var(--mono); font-size: 13px; font-weight: 700;
+  color: var(--accent);
+  background: rgba(0, 229, 199, .07);
+  border: 1px solid rgba(0, 229, 199, .4); border-radius: 50%;
+  box-shadow: 0 0 10px rgba(0, 229, 199, .12);
+}
+.onb-step-body { min-width: 0; }
+.onb-step-title { font-size: 13.5px; font-weight: 650; color: var(--text); margin: 1px 0 3px; }
+.onb-step-text { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--muted); }
+
+
+/* ---------- footer / azioni ---------- */
+.onb-foot {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  margin-top: 14px;
+}
+.onb-cta { min-height: 36px; }
+.onb-foot-note strong { color: var(--text); font-weight: 650; }
+
+
+/* ---------- appiglio "❔ Guida" nella batch-bar (riapre on-demand) ---------- */
+.onb-help-btn:hover:not(:disabled) { border-color: rgba(0, 229, 199, .5); color: var(--accent); }
+
+
+/* ---------- keyframes ---------- */
+@keyframes onb-in {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: none; }
+}
+
+
+/* ---------- mobile (≤ 640px): piena larghezza, passi in colonna, target ≥40px ---------- */
+@media (max-width: 640px) {
+  .onb-panel { padding: 14px; border-radius: 8px; }
+  .onb-steps { grid-template-columns: 1fr; }
+  .onb-x { width: 40px; height: 40px; font-size: 17px; }
+  .onb-cta { min-height: 44px; width: 100%; justify-content: center; }
+  .onb-foot { gap: 10px; }
+  .onb-help-btn { min-height: 40px; }
+}
+
+
+/* ---------- prefers-reduced-motion: reduce → niente movimento ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .onb-panel { animation: none; }
+}

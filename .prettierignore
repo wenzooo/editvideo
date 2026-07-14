@@ -1,0 +1,25 @@
+# Prettier e' OPZIONALE in questo progetto: non e' in package.json ne' in
+# nessuna build/hook. Questo file serve a chi decide di lanciarlo a mano, per
+# non formattare cio' che non deve.
+
+# Dipendenze e artefatti di build
+node_modules/
+frontend/node_modules/
+dist/
+frontend/dist/
+build/
+
+# Runtime / dati (mai versionati, mai formattati)
+media/
+data/
+__pycache__/
+.pytest_cache/
+
+# Copia dello Space Hugging Face (codice canonico altrove)
+deploy/
+
+# Documentazione: gestita a mano, niente riformattazioni automatiche
+*.md
+
+# Lockfile
+package-lock.json
